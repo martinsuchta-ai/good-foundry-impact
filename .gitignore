@@ -1,0 +1,6 @@
+imp_secrets.php
+.DS_Store
+*.log
+node_modules/
+.vscode/
+.idea/

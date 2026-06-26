@@ -1,0 +1,97 @@
+name: Deploy to SiteGround
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install lftp
+        run: sudo apt-get update && sudo apt-get install -y lftp
+
+      - name: Sanity — required secrets present
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PASS: ${{ secrets.SG_PASS }}
+        run: |
+          : "${SG_HOST:?SG_HOST repo secret is missing}"
+          : "${SG_USER:?SG_USER repo secret is missing}"
+          : "${SG_PASS:?SG_PASS repo secret is missing}"
+          echo "secrets present — proceeding"
+
+      - name: Mirror to SiteGround (api/ + app/)
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PASS: ${{ secrets.SG_PASS }}
+          # The remote layout is the SiteGround standard for an apex
+          # primary domain on its own hosting area:
+          #   /home/customer/www/impacts-foundry.com/public_html/
+          # The FTP user lands at the hosting-account root, not at
+          # the domain's public_html — so we walk into the domain
+          # folder first.
+        run: |
+          # SiteGround runs EXPLICIT FTPS on port 21 (AUTH TLS upgrade
+          # after plain-FTP connect). Lftp's `ftps://` URL scheme is
+          # IMPLICIT FTPS on port 990 — which SG doesn't expose, so the
+          # first connect attempt times out. Correct shape for SG:
+          #   - connect via ftp:// (port 21)
+          #   - force AUTH TLS upgrade (ftp:ssl-force yes)
+          #   - encrypt the data channel too (ftp:ssl-protect-data yes)
+          # The `open -u user,pass host` form (instead of embedding the
+          # password in the URL) is more robust to special characters
+          # in the FTP password.
+          #
+          # Exclude list mirrors the Affiliate sister-platform deploy:
+          # repo-only files (.git, docs, CLAUDE.md, README.md) and the
+          # imp_secrets.php that lives ABOVE webroot but lives in the
+          # working tree on the dev machine.
+          lftp -c "
+            set ftp:ssl-allow yes
+            set ftp:ssl-force yes
+            set ftp:ssl-protect-data yes
+            set ssl:verify-certificate no
+            set net:max-retries 3
+            set net:timeout 30
+            set net:reconnect-interval-base 5
+            set xfer:clobber on
+            open -u $SG_USER,$SG_PASS ftp://$SG_HOST
+            mirror -R --delete --verbose --parallel=4 \
+              -X .git/ \
+              -X .github/ \
+              -X .gitignore \
+              -X CLAUDE.md \
+              -X README.md \
+              -X docs/ \
+              -X impacts_secrets.php \
+              --exclude-glob '*.log' \
+              ./ /impacts-foundry.com/public_html/
+            bye
+          "
+
+      - name: Trigger any pending migrations
+        env:
+          MIGRATE_URL: ${{ secrets.IMP_MIGRATE_URL }}
+        # Optional — if IMP_MIGRATE_URL is set as a repo secret (the
+        # full URL including ?token=...), we kick the runner so any
+        # 00N_*.sql files just pushed get applied. No-op when the
+        # secret is unset; that path keeps the manual workflow as the
+        # default while migrations are still rare.
+        run: |
+          if [ -n "$MIGRATE_URL" ]; then
+            curl -fsSL --max-time 60 "$MIGRATE_URL" || echo "(migration trigger non-fatal)"
+          else
+            echo "IMP_MIGRATE_URL not set — skip auto-migration"
+          fi

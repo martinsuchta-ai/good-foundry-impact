@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Dashboard — Impacts Foundry Admin</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body:not(.booted) .shell { visibility: hidden; }
+    </style>
+</head>
+<body>
+
+<div class="shell">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            Impacts Foundry
+            <div class="sidebar-brand-sub">Admin</div>
+        </div>
+        <div id="nav"></div>
+        <div style="margin-top:24px;padding-top:14px;border-top:1px solid rgba(255,255,255,.10);font-size:11px;color:rgba(255,255,255,.55)">
+            Signed in as <span id="whoami" style="color:#fff;font-weight:700;display:block;margin-top:3px;word-break:break-all">…</span>
+            <button id="signout-btn" class="btn" style="background:rgba(255,255,255,.08);color:#fff;margin-top:10px;padding:6px 12px;font-size:11px;font-weight:700">Sign out</button>
+        </div>
+    </aside>
+
+    <main class="content">
+        <div class="page-header">
+            <h1 class="page-title">Dashboard</h1>
+            <p class="page-sub">Operational view of the Impacts Foundry platform.</p>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Phase 0 — foundation live</div>
+            <p style="margin:0;color:var(--text-mid);font-size:13px;line-height:1.6">
+                Bootstrap, db.php, migration runner, admin auth, and the first smoke endpoint
+                (<code style="font-family:var(--mono);font-size:12px">api/v1/consumers_me.php</code>) are deployed.
+                Next phase: scheduler + contribution lanes + safeguarding gate (brief §4-§8).
+            </p>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Consumers</div>
+            <p style="margin:0 0 12px;color:var(--text-mid);font-size:13px;line-height:1.6">
+                Sites embedding Impacts via api_key + widget_origins. WBM is consumer #1 (seeded after Phase 0 migration apply).
+            </p>
+            <a href="consumers.html" class="btn btn-primary" style="display:inline-flex;width:auto">Open consumers →</a>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Placements</div>
+            <p style="margin:0 0 12px;color:var(--text-mid);font-size:13px;line-height:1.6">
+                Named slots within a consumer where projects render — WBM's bank projects rail, vault CTA panel, etc.
+            </p>
+            <a href="placements.html" class="btn btn-primary" style="display:inline-flex;width:auto">Open placements →</a>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Impact projects</div>
+            <p style="margin:0 0 12px;color:var(--text-mid);font-size:13px;line-height:1.6">
+                The core entity. Time-boxed missions on the mission → planning → execution → done state machine (§4).
+                Sponsor + supporter + contribution-lane wiring lands in Phase 1.
+            </p>
+            <a href="projects.html" class="btn btn-primary" style="display:inline-flex;width:auto">Open projects →</a>
+        </div>
+    </main>
+</div>
+
+<script src="shell.js"></script>
+
+</body>
+</html>
