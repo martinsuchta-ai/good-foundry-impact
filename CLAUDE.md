@@ -177,6 +177,54 @@ hard-clamps precision to `suburb` regardless of the stored value
 on public/consumer-facing endpoints. Admin-authenticated views can
 see the stored value.
 
+### 9b. State machine + scheduler (Phase 1a — shipped)
+
+Every transition on `impact_project.state` goes through
+`impacts_transition()` in `api/impacts_state_engine.php`. NEVER write
+to `impact_project.state` directly — bypassing the helper bypasses
+the audit log + the concurrency guard.
+
+Transition pairs allowed:
+
+| From | To | Path |
+|---|---|---|
+| `mission` | `planning` | Admin-only via `api/admin/transition_project.php` (no auto path) |
+| `planning` | `execution` | Auto via cron scheduler at `start_at`; manual override available |
+| `execution` | `done` | Auto via cron scheduler at `end_at`; sponsor close-early via admin endpoint |
+
+Audit log: every flip writes to `project_transition_log` (migration
+006) with `from_state`, `to_state`, `transitioned_at`,
+`transition_type`, `reason`, `triggered_by` (admin_user.id for
+manual), `scheduled_for` (the start_at/end_at this transition was
+due against — diagnostic for reconciliation).
+
+**Cron entry**: `api/cron/scheduler.php`. Recommended cadence: every
+5 minutes via SG cron, PHP-CLI invocation:
+
+```
+*/5 * * * * /usr/local/bin/php /home/customer/www/impacts-foundry.com/public_html/api/cron/scheduler.php
+```
+
+Reconciliation: the scheduler's queries match `<= NOW()` not
+`= NOW()`, so any project whose start_at/end_at is in the past
+(scheduler was down, server reboot, etc.) gets transitioned by the
+next run. The `scheduled_for` column on the audit row makes "this
+was late by X minutes" diagnosable after the fact.
+
+Safeguarding gate (brief §8): the planning→execution scan EXCLUDES
+projects flagged `involves_minors_or_vulnerable=1 AND
+verification_status != 'verified'`. They stay in `planning` past
+their start_at and appear in the report under
+`blocked_by_verification[]`. Phase 1c (safeguarding record + admin
+verification flow) is where these get cleared.
+
+Concurrency: `impacts_transition()` uses a conditional `UPDATE
+impact_project SET state=? WHERE id=? AND state=?`. Two scheduler
+runs racing to flip the same row will both pass the SELECT but
+only one will pass this guard — the loser sees rowCount=0 and
+throws a RuntimeException, which the admin endpoint turns into
+a 409 (re-fetch + retry).
+
 ### 10. Money lane is route-only (§6 HARD RULE)
 
 Phase 1 is route-only. NO processor integration, NO custody, NO
@@ -216,8 +264,8 @@ disburse → STOP and re-read brief §6.
 
 | Phase | Status | Scope |
 |---|---|---|
-| 0 | **In progress** (this commit) | Foundation: repo + scaffolding + secrets + db.php + migration runner + admin login + first smoke-test API + initial schema (admin_user, admin_session, imp_consumer, imp_placement, impact_project base) |
-| 1a | Pending Phase 0 done | Lifecycle state engine + background scheduler (auto transitions, restart reconciliation) |
+| 0 | **SHIPPED 2026-06-27** | Foundation: repo + scaffolding + secrets + db.php + migration runner + admin login + first smoke-test API + initial schema (admin_user, admin_session, consumer, placement, impact_project base) |
+| 1a | **In progress** (this commit) | Lifecycle state engine + background scheduler (auto transitions, restart reconciliation, audit log, admin manual-transition endpoint) |
 | 1b | Pending Phase 1a | Contribution lanes — `contribution_ask` + `contribution_pledge`; effort/energy pledge→confirm→fulfil |
 | 1c | Pending Phase 1b | Safeguarding — `safeguarding_record`, admin verification gate blocking planning/execution for flagged projects |
 | 1d | Pending Phase 1c | Money lane — route-only ask + logged redirect endpoint to external destination |
