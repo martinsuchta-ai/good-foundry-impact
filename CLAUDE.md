@@ -265,7 +265,8 @@ disburse → STOP and re-read brief §6.
 | Phase | Status | Scope |
 |---|---|---|
 | 0 | **SHIPPED 2026-06-27** | Foundation: repo + scaffolding + secrets + db.php + migration runner + admin login + first smoke-test API + initial schema (admin_user, admin_session, consumer, placement, impact_project base) |
-| 1a | **In progress** (this commit) | Lifecycle state engine + background scheduler (auto transitions, restart reconciliation, audit log, admin manual-transition endpoint) |
+| 1a | **SHIPPED 2026-06-27** | Lifecycle state engine + background scheduler (auto transitions, restart reconciliation, audit log, admin manual-transition endpoint) |
+| 1b | **In progress** (this commit) | sponsor + supporter tables / contribution_ask + contribution_pledge tables / sponsor FK on impact_project / admin UI for project CRUD / public /v1/projects feed with server-side location-precision reduction |
 | 1b | Pending Phase 1a | Contribution lanes — `contribution_ask` + `contribution_pledge`; effort/energy pledge→confirm→fulfil |
 | 1c | Pending Phase 1b | Safeguarding — `safeguarding_record`, admin verification gate blocking planning/execution for flagged projects |
 | 1d | Pending Phase 1c | Money lane — route-only ask + logged redirect endpoint to external destination |

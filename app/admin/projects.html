@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Impact Projects — Impacts Foundry Admin</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body:not(.booted) .shell { visibility: hidden; }
+        .projects-table { width:100%; border-collapse: collapse; }
+        .projects-table th, .projects-table td { padding: 10px 12px; border-bottom: 1px solid var(--border-light); font-size: 12.5px; text-align: left; }
+        .projects-table th { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); font-weight: 800; background: var(--surface-2); }
+        .state-pill { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+        .state-mission   { background: rgba(232,98,26,0.12);  color: var(--orange); }
+        .state-planning  { background: rgba(46,125,82,0.12);  color: var(--green); }
+        .state-execution { background: rgba(46,125,82,0.20);  color: var(--green); }
+        .state-done      { background: var(--surface-2);       color: var(--text-muted); }
+        .scale-pill { display: inline-block; padding: 1px 7px; border-radius: 99px; font-size: 10px; font-weight: 700; background: var(--surface-2); color: var(--text-mid); }
+        .vuln-flag { display: inline-block; padding: 1px 6px; border-radius: 99px; font-size: 10px; font-weight: 800; background: rgba(192,57,43,0.10); color: var(--red); margin-left: 4px; }
+        .toolbar { display: flex; gap: 12px; margin-bottom: 16px; align-items: flex-end; flex-wrap: wrap; }
+        .toolbar .field { margin-bottom: 0; min-width: 160px; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        @media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } }
+        .form-grid .full { grid-column: 1 / -1; }
+        textarea.field-textarea { width:100%; padding: 10px 12px; border:1px solid var(--border); border-radius:8px; font-size:13px; font-family:inherit; min-height:80px; resize: vertical; }
+        select.field-select { width:100%; padding: 10px 12px; border:1px solid var(--border); border-radius:8px; font-size:13px; font-family:inherit; background: #fff; }
+    </style>
+</head>
+<body>
+
+<div class="shell">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            Impacts Foundry
+            <div class="sidebar-brand-sub">Admin</div>
+        </div>
+        <div id="nav"></div>
+        <div style="margin-top:24px;padding-top:14px;border-top:1px solid rgba(255,255,255,.10);font-size:11px;color:rgba(255,255,255,.55)">
+            Signed in as <span id="whoami" style="color:#fff;font-weight:700;display:block;margin-top:3px;word-break:break-all">…</span>
+            <button id="signout-btn" class="btn" style="background:rgba(255,255,255,.08);color:#fff;margin-top:10px;padding:6px 12px;font-size:11px;font-weight:700">Sign out</button>
+        </div>
+    </aside>
+
+    <main class="content">
+        <div class="page-header">
+            <h1 class="page-title">Impact projects</h1>
+            <p class="page-sub">The core entity — time-boxed missions on the mission → planning → execution → done state machine. New projects land in <strong>mission</strong>; promote via the manual-transition endpoint.</p>
+        </div>
+
+        <div class="card">
+            <div class="toolbar">
+                <div class="field">
+                    <label for="filter-state">State</label>
+                    <select id="filter-state" class="field-select">
+                        <option value="">All states</option>
+                        <option value="mission">Mission</option>
+                        <option value="planning">Planning</option>
+                        <option value="execution">Execution</option>
+                        <option value="done">Done</option>
+                    </select>
+                </div>
+                <button type="button" class="btn btn-primary" id="new-project-btn">+ New project</button>
+                <button type="button" class="btn" id="refresh-btn" style="background:var(--surface-2);color:var(--text-mid);border:1px solid var(--border)">Refresh</button>
+            </div>
+
+            <div id="msg" class="msg" style="display:none"></div>
+
+            <table class="projects-table" id="projects-table">
+                <thead>
+                    <tr>
+                        <th>ID</th><th>Title</th><th>Scale</th><th>State</th>
+                        <th>Window</th><th>Sponsor</th><th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="projects-tbody">
+                    <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px">Loading projects…</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Create / edit drawer (inline so we don't need a separate file) -->
+        <div id="editor-wrap" style="display:none">
+            <div class="card">
+                <div class="card-title" id="editor-title">New project</div>
+                <form id="project-form">
+                    <div class="form-grid">
+                        <div class="field full">
+                            <label for="f-title">Title *</label>
+                            <input type="text" id="f-title" name="title" required maxlength="200">
+                        </div>
+                        <div class="field full">
+                            <label for="f-description">Description</label>
+                            <textarea class="field-textarea" id="f-description" name="description"></textarea>
+                        </div>
+                        <div class="field">
+                            <label for="f-scale">Scale *</label>
+                            <select class="field-select" id="f-scale" name="scale">
+                                <option value="micro">Micro — personal / very small scope</option>
+                                <option value="mid">Mid — community / organisation / local area</option>
+                                <option value="macro">Macro — state / national</option>
+                                <option value="borderless">Borderless — international</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="f-sponsor-id">Sponsor ID (optional)</label>
+                            <input type="number" id="f-sponsor-id" name="sponsor_id" min="1" placeholder="leave blank for unassigned">
+                        </div>
+                        <div class="field full">
+                            <label for="f-success-measure">Success measure</label>
+                            <textarea class="field-textarea" id="f-success-measure" name="success_measure" placeholder="What does ‘done well’ look like?"></textarea>
+                        </div>
+                        <div class="field">
+                            <label for="f-start-at">Start at (UTC)</label>
+                            <input type="datetime-local" id="f-start-at" name="start_at">
+                        </div>
+                        <div class="field">
+                            <label for="f-end-at">End at (UTC)</label>
+                            <input type="datetime-local" id="f-end-at" name="end_at">
+                        </div>
+                        <div class="field">
+                            <label for="f-location-mode">Location mode</label>
+                            <select class="field-select" id="f-location-mode" name="location_mode">
+                                <option value="none">None — non-physical</option>
+                                <option value="point">Point — specific place</option>
+                                <option value="area">Area — region without single point</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="f-location-precision">Location precision</label>
+                            <select class="field-select" id="f-location-precision" name="location_precision">
+                                <option value="suburb">Suburb (≈110m)</option>
+                                <option value="exact">Exact</option>
+                                <option value="region">Region (≈11km)</option>
+                                <option value="country">Country (centroid)</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="f-latitude">Latitude</label>
+                            <input type="number" id="f-latitude" name="latitude" step="any" min="-90" max="90">
+                        </div>
+                        <div class="field">
+                            <label for="f-longitude">Longitude</label>
+                            <input type="number" id="f-longitude" name="longitude" step="any" min="-180" max="180">
+                        </div>
+                        <div class="field full">
+                            <label for="f-location-label">Location label</label>
+                            <input type="text" id="f-location-label" name="location_label" placeholder="e.g. Fitzroy, VIC">
+                        </div>
+                        <div class="field full">
+                            <label style="display:flex;align-items:center;gap:10px;font-size:13px;text-transform:none;letter-spacing:normal;color:var(--text-dark)">
+                                <input type="checkbox" id="f-vuln" name="involves_minors_or_vulnerable">
+                                Involves minors or vulnerable people (triggers safeguarding gate per brief §8 + hard-clamps map precision to suburb on public feed)
+                            </label>
+                        </div>
+                    </div>
+
+                    <div style="display:flex;gap:10px;margin-top:16px">
+                        <button type="submit" class="btn btn-primary" id="save-btn">Save</button>
+                        <button type="button" class="btn" id="cancel-btn" style="background:var(--surface-2);color:var(--text-mid);border:1px solid var(--border)">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="shell.js"></script>
+<script>
+(function () {
+    var API = '../../api/admin/projects.php';
+    var msg = document.getElementById('msg');
+    var tbody = document.getElementById('projects-tbody');
+    var editorWrap = document.getElementById('editor-wrap');
+    var editorTitle = document.getElementById('editor-title');
+    var form = document.getElementById('project-form');
+    var editingId = null;
+
+    function flash(text, kind) {
+        msg.textContent = text;
+        msg.className = 'msg ' + (kind === 'ok' ? 'msg-ok' : 'msg-error');
+        msg.style.display = '';
+        if (kind === 'ok') setTimeout(function () { msg.style.display = 'none'; }, 3500);
+    }
+
+    function fmtDate(s) {
+        if (!s) return '—';
+        try { return new Date(s.replace(' ', 'T') + 'Z').toLocaleString(); } catch (e) { return s; }
+    }
+
+    function loadList() {
+        var state = document.getElementById('filter-state').value;
+        var qs = state ? ('?action=list&state=' + encodeURIComponent(state)) : '?action=list';
+        fetch(API + qs, { credentials: 'include', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Failed to load', 'err'); return; }
+                if (!j.projects.length) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px">No projects yet. Click <strong>+ New project</strong> to create one.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = j.projects.map(function (p) {
+                    var window_ = (p.start_at || p.end_at)
+                        ? (fmtDate(p.start_at) + ' → ' + fmtDate(p.end_at))
+                        : '<span style="color:var(--text-muted)">not scheduled</span>';
+                    var vuln = (parseInt(p.involves_minors_or_vulnerable, 10) === 1)
+                        ? '<span class="vuln-flag" title="involves minors / vulnerable">VULN</span>'
+                        : '';
+                    var sponsor = p.sponsor_name
+                        ? (p.sponsor_name + ' <span style="color:var(--text-muted)">#' + p.sponsor_id + '</span>')
+                        : '<span style="color:var(--text-muted)">—</span>';
+                    return ''
+                        + '<tr>'
+                        +   '<td><code style="font-family:var(--mono);font-size:11px">' + p.id + '</code></td>'
+                        +   '<td><strong>' + esc(p.title) + '</strong>' + vuln + '</td>'
+                        +   '<td><span class="scale-pill">' + esc(p.scale) + '</span></td>'
+                        +   '<td><span class="state-pill state-' + esc(p.state) + '">' + esc(p.state) + '</span></td>'
+                        +   '<td>' + window_ + '</td>'
+                        +   '<td>' + sponsor + '</td>'
+                        +   '<td><button class="btn btn-primary" style="padding:5px 11px;font-size:11px" data-edit="' + p.id + '">Edit</button></td>'
+                        + '</tr>';
+                }).join('');
+                Array.prototype.forEach.call(tbody.querySelectorAll('[data-edit]'), function (btn) {
+                    btn.addEventListener('click', function () { openEditor(parseInt(btn.getAttribute('data-edit'), 10)); });
+                });
+            })
+            .catch(function () { flash('Network error loading projects', 'err'); });
+    }
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+        });
+    }
+
+    function openEditor(projectId) {
+        editingId = projectId || null;
+        form.reset();
+        editorTitle.textContent = projectId ? ('Edit project #' + projectId) : 'New project';
+        editorWrap.style.display = '';
+        editorWrap.scrollIntoView({ behavior: 'smooth' });
+
+        if (!projectId) return;
+        fetch(API + '?action=get&project_id=' + projectId, { credentials: 'include', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Could not load project', 'err'); return; }
+                var p = j.project;
+                document.getElementById('f-title').value = p.title || '';
+                document.getElementById('f-description').value = p.description || '';
+                document.getElementById('f-scale').value = p.scale || 'micro';
+                document.getElementById('f-sponsor-id').value = p.sponsor_id || '';
+                document.getElementById('f-success-measure').value = p.success_measure || '';
+                document.getElementById('f-start-at').value = p.start_at ? p.start_at.replace(' ', 'T').slice(0, 16) : '';
+                document.getElementById('f-end-at').value = p.end_at ? p.end_at.replace(' ', 'T').slice(0, 16) : '';
+                document.getElementById('f-location-mode').value = p.location_mode || 'none';
+                document.getElementById('f-location-precision').value = p.location_precision || 'suburb';
+                document.getElementById('f-latitude').value = p.latitude || '';
+                document.getElementById('f-longitude').value = p.longitude || '';
+                document.getElementById('f-location-label').value = p.location_label || '';
+                document.getElementById('f-vuln').checked = parseInt(p.involves_minors_or_vulnerable, 10) === 1;
+            });
+    }
+
+    function closeEditor() {
+        editorWrap.style.display = 'none';
+        editingId = null;
+    }
+
+    form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var body = {
+            title: document.getElementById('f-title').value.trim(),
+            description: document.getElementById('f-description').value,
+            scale: document.getElementById('f-scale').value,
+            sponsor_id: document.getElementById('f-sponsor-id').value || null,
+            success_measure: document.getElementById('f-success-measure').value,
+            start_at: document.getElementById('f-start-at').value
+                ? document.getElementById('f-start-at').value.replace('T', ' ') + ':00' : null,
+            end_at: document.getElementById('f-end-at').value
+                ? document.getElementById('f-end-at').value.replace('T', ' ') + ':00' : null,
+            location_mode: document.getElementById('f-location-mode').value,
+            location_precision: document.getElementById('f-location-precision').value,
+            latitude: document.getElementById('f-latitude').value || null,
+            longitude: document.getElementById('f-longitude').value || null,
+            location_label: document.getElementById('f-location-label').value,
+            involves_minors_or_vulnerable: document.getElementById('f-vuln').checked
+        };
+        var url = editingId
+            ? (API + '?action=update&project_id=' + editingId)
+            : (API + '?action=create');
+        fetch(url, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+            .then(function (res) {
+                if (!res.ok || !res.body || !res.body.ok) {
+                    flash((res.body && res.body.error) || 'Save failed', 'err');
+                    return;
+                }
+                flash(editingId ? 'Project updated' : ('Project #' + res.body.project_id + ' created'), 'ok');
+                closeEditor();
+                loadList();
+            })
+            .catch(function () { flash('Network error saving', 'err'); });
+    });
+
+    document.getElementById('new-project-btn').addEventListener('click', function () { openEditor(null); });
+    document.getElementById('cancel-btn').addEventListener('click', closeEditor);
+    document.getElementById('refresh-btn').addEventListener('click', loadList);
+    document.getElementById('filter-state').addEventListener('change', loadList);
+
+    /* Wait for shell to finish boot before loading list. */
+    var bootCheck = setInterval(function () {
+        if (document.body.classList.contains('booted')) {
+            clearInterval(bootCheck);
+            loadList();
+        }
+    }, 100);
+})();
+</script>
+
+</body>
+</html>
