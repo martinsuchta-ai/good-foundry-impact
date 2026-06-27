@@ -161,6 +161,75 @@
                     </div>
                 </form>
             </div>
+
+            <!-- Asks panel — only renders when editing an existing project.
+                 The schema (contribution_ask) is per-project so we can't
+                 attach asks to a project until that project exists. -->
+            <div class="card" id="asks-panel" style="display:none">
+                <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+                    <span>Contribution asks</span>
+                    <button type="button" class="btn btn-primary" id="new-ask-btn" style="padding:5px 11px;font-size:11px">+ New ask</button>
+                </div>
+                <p style="margin:0 0 14px;font-size:12px;color:var(--text-mid)">What this project asks supporters for. Effort (time) and Energy (showing up / skills) lanes use the pledge → confirm → fulfil lifecycle. Money lane is route-only (brief §6) — the URL below is where supporters get redirected; GMI never holds funds.</p>
+
+                <table class="projects-table" id="asks-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th><th>Lane</th><th>Label</th><th>Target</th><th>Active</th><th>Pledges</th><th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="asks-tbody">
+                        <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px">No asks yet.</td></tr>
+                    </tbody>
+                </table>
+
+                <!-- Inline ask form -->
+                <div id="ask-form-wrap" style="display:none;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+                    <h3 style="font-size:13px;font-weight:800;margin:0 0 12px" id="ask-form-title">New ask</h3>
+                    <form id="ask-form">
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="af-lane">Lane *</label>
+                                <select class="field-select" id="af-lane" name="lane">
+                                    <option value="effort">Effort — time (hours)</option>
+                                    <option value="energy">Energy — show up / skill / in-kind</option>
+                                    <option value="money">Money — route to external rail (no custody)</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="af-label">Label *</label>
+                                <input type="text" id="af-label" name="label" required maxlength="200" placeholder="e.g. 4 hours tutoring">
+                            </div>
+                            <div class="field full">
+                                <label for="af-description">Description</label>
+                                <textarea class="field-textarea" id="af-description" name="description" style="min-height:60px"></textarea>
+                            </div>
+                            <div class="field">
+                                <label for="af-target-quantity">Target quantity</label>
+                                <input type="number" id="af-target-quantity" name="target_quantity" step="any" min="0">
+                            </div>
+                            <div class="field">
+                                <label for="af-target-unit">Target unit</label>
+                                <input type="text" id="af-target-unit" name="target_unit" maxlength="40" placeholder="hours / people / AUD / items">
+                            </div>
+                            <div class="field full" id="af-money-url-wrap" style="display:none">
+                                <label for="af-money-url">External destination URL *<span style="color:var(--text-muted);font-weight:400"> (money lane only — brief §6 HARD RULE)</span></label>
+                                <input type="url" id="af-money-url" name="external_destination_url" maxlength="500" placeholder="https://www.gofundme.com/... or https://give.acnc-org.example/...">
+                            </div>
+                            <div class="field full">
+                                <label style="display:flex;align-items:center;gap:10px;font-size:13px;text-transform:none;letter-spacing:normal;color:var(--text-dark)">
+                                    <input type="checkbox" id="af-active" name="is_active" checked>
+                                    Active — visible to consumers. Uncheck to hide without delete.
+                                </label>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:10px;margin-top:14px">
+                            <button type="submit" class="btn btn-primary" id="ask-save-btn">Save ask</button>
+                            <button type="button" class="btn" id="ask-cancel-btn" style="background:var(--surface-2);color:var(--text-mid);border:1px solid var(--border)">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
         </div>
     </main>
 </div>
@@ -311,6 +380,154 @@
     document.getElementById('cancel-btn').addEventListener('click', closeEditor);
     document.getElementById('refresh-btn').addEventListener('click', loadList);
     document.getElementById('filter-state').addEventListener('change', loadList);
+
+    /* ── Asks panel — only renders when editing an existing project ── */
+    var ASKS_API = '../../api/admin/contribution_asks.php';
+    var asksPanel = document.getElementById('asks-panel');
+    var asksTbody = document.getElementById('asks-tbody');
+    var askFormWrap = document.getElementById('ask-form-wrap');
+    var askFormTitle = document.getElementById('ask-form-title');
+    var askForm = document.getElementById('ask-form');
+    var afMoneyUrlWrap = document.getElementById('af-money-url-wrap');
+    var afLaneSel = document.getElementById('af-lane');
+    var editingAskId = null;
+
+    afLaneSel.addEventListener('change', function () {
+        afMoneyUrlWrap.style.display = (afLaneSel.value === 'money') ? '' : 'none';
+        document.getElementById('af-money-url').required = (afLaneSel.value === 'money');
+    });
+
+    function showAsksPanel(projectId) {
+        asksPanel.style.display = '';
+        askFormWrap.style.display = 'none';
+        editingAskId = null;
+        loadAsks(projectId);
+    }
+
+    function hideAsksPanel() {
+        asksPanel.style.display = 'none';
+    }
+
+    function loadAsks(projectId) {
+        fetch(ASKS_API + '?action=list&project_id=' + projectId, { credentials: 'include', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Failed to load asks', 'err'); return; }
+                if (!j.asks.length) {
+                    asksTbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:20px">No asks yet. Click <strong>+ New ask</strong> to define what this project needs.</td></tr>';
+                    return;
+                }
+                asksTbody.innerHTML = j.asks.map(function (a) {
+                    var target = (a.target_quantity != null && a.target_quantity !== '')
+                        ? (a.target_quantity + (a.target_unit ? (' ' + a.target_unit) : ''))
+                        : '<span style="color:var(--text-muted)">—</span>';
+                    var laneBadge = '<span class="scale-pill">' + esc(a.lane) + '</span>';
+                    var pledgeText = a.pledge_count + ' total'
+                        + (parseInt(a.fulfilled_count, 10) > 0 ? (' · ' + a.fulfilled_count + ' fulfilled') : '');
+                    return ''
+                        + '<tr>'
+                        +   '<td><code style="font-family:var(--mono);font-size:11px">' + a.id + '</code></td>'
+                        +   '<td>' + laneBadge + '</td>'
+                        +   '<td><strong>' + esc(a.label) + '</strong></td>'
+                        +   '<td>' + target + '</td>'
+                        +   '<td><span class="state-pill ' + (parseInt(a.is_active,10) === 1 ? 'state-planning' : 'state-done') + '">'
+                        +     (parseInt(a.is_active,10) === 1 ? 'Active' : 'Inactive') + '</span></td>'
+                        +   '<td>' + pledgeText + '</td>'
+                        +   '<td><button class="btn btn-primary" style="padding:5px 11px;font-size:11px" data-edit-ask="' + a.id + '">Edit</button> <button class="btn" data-del-ask="' + a.id + '" style="padding:5px 11px;font-size:11px;background:var(--surface-2);color:var(--text-mid);border:1px solid var(--border);margin-left:2px">Delete</button></td>'
+                        + '</tr>';
+                }).join('');
+                Array.prototype.forEach.call(asksTbody.querySelectorAll('[data-edit-ask]'), function (btn) {
+                    btn.addEventListener('click', function () { openAskEditor(parseInt(btn.getAttribute('data-edit-ask'), 10)); });
+                });
+                Array.prototype.forEach.call(asksTbody.querySelectorAll('[data-del-ask]'), function (btn) {
+                    btn.addEventListener('click', function () { deleteAsk(parseInt(btn.getAttribute('data-del-ask'), 10)); });
+                });
+            });
+    }
+
+    function openAskEditor(askId) {
+        editingAskId = askId || null;
+        askForm.reset();
+        askFormTitle.textContent = askId ? ('Edit ask #' + askId) : 'New ask';
+        afMoneyUrlWrap.style.display = 'none';
+        document.getElementById('af-money-url').required = false;
+        askFormWrap.style.display = '';
+        askFormWrap.scrollIntoView({ behavior: 'smooth' });
+
+        if (!askId) return;
+        fetch(ASKS_API + '?action=get&ask_id=' + askId, { credentials: 'include', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Could not load ask', 'err'); return; }
+                var a = j.ask;
+                afLaneSel.value = a.lane || 'effort';
+                document.getElementById('af-label').value = a.label || '';
+                document.getElementById('af-description').value = a.description || '';
+                document.getElementById('af-target-quantity').value = a.target_quantity || '';
+                document.getElementById('af-target-unit').value = a.target_unit || '';
+                document.getElementById('af-money-url').value = a.external_destination_url || '';
+                document.getElementById('af-active').checked = parseInt(a.is_active, 10) === 1;
+                afLaneSel.dispatchEvent(new Event('change'));
+            });
+    }
+
+    function deleteAsk(askId) {
+        if (!confirm('Delete ask #' + askId + '? This also deletes every pledge against it.')) return;
+        fetch(ASKS_API + '?action=delete&ask_id=' + askId, { method: 'POST', credentials: 'include' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Delete failed', 'err'); return; }
+                flash('Ask deleted', 'ok');
+                if (editingId) loadAsks(editingId);
+            });
+    }
+
+    askForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!editingId) { flash('Save the project first before adding asks.', 'err'); return; }
+        var body = {
+            impact_project_id: editingId,
+            lane: afLaneSel.value,
+            label: document.getElementById('af-label').value.trim(),
+            description: document.getElementById('af-description').value,
+            target_quantity: document.getElementById('af-target-quantity').value || null,
+            target_unit: document.getElementById('af-target-unit').value,
+            external_destination_url: document.getElementById('af-money-url').value || null,
+            is_active: document.getElementById('af-active').checked
+        };
+        var url = editingAskId
+            ? (ASKS_API + '?action=update&ask_id=' + editingAskId)
+            : (ASKS_API + '?action=create');
+        fetch(url, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+            .then(function (res) {
+                if (!res.ok || !res.body || !res.body.ok) {
+                    flash((res.body && res.body.error) || 'Save failed', 'err');
+                    return;
+                }
+                flash(editingAskId ? 'Ask updated' : ('Ask #' + res.body.ask_id + ' created'), 'ok');
+                askFormWrap.style.display = 'none';
+                loadAsks(editingId);
+            });
+    });
+
+    document.getElementById('new-ask-btn').addEventListener('click', function () { openAskEditor(null); });
+    document.getElementById('ask-cancel-btn').addEventListener('click', function () { askFormWrap.style.display = 'none'; });
+
+    /* Hook into the existing openEditor so the asks panel shows when
+       editing an existing project, hides when creating a new one. */
+    var _origOpenEditor = openEditor;
+    openEditor = function (projectId) {
+        _origOpenEditor(projectId);
+        if (projectId) showAsksPanel(projectId);
+        else hideAsksPanel();
+    };
+    var _origCloseEditor = closeEditor;
+    closeEditor = function () { _origCloseEditor(); hideAsksPanel(); };
 
     /* Wait for shell to finish boot before loading list. */
     var bootCheck = setInterval(function () {
