@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Embed the Impacts Foundry widget</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 860px; margin: 32px auto; padding: 0 20px; color: #1c2b3a; line-height: 1.55; }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
+  p { color: #475569; }
+  pre { background: #0f172a; color: #f1f5f9; padding: 14px 16px; border-radius: 8px; font-size: 13px; overflow-x: auto; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: 8px; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e5e7eb; }
+  th { background: #f8fafc; font-weight: 600; }
+  .demo { border: 1px dashed #cbd5e1; padding: 18px; border-radius: 8px; margin-top: 10px; background: #fafbfc; }
+  .tag { display: inline-block; background: #f97316; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<h1>Embed the Impacts Foundry widget <span class="tag">v1</span></h1>
+<p>Drop a script + a <code>&lt;div&gt;</code> into any page on your site to show your pinned Impacts Foundry projects with a one-click supporter pathway. The widget renders inside a Shadow DOM so your site's CSS will not be affected (or affected by it).</p>
+
+<h2>1. Minimum embed</h2>
+<pre>&lt;div data-gmi-widget data-api-key="YOUR_API_KEY"&gt;&lt;/div&gt;
+&lt;script src="https://www.impacts-foundry.com/app/widget/v1/embed.js" async&gt;&lt;/script&gt;</pre>
+
+<p>Replace <code>YOUR_API_KEY</code> with the consumer api_key your Impacts Foundry account manager issued. Your domain must be registered as a widget origin against that key (so the CORS check passes) — request additional origins via support.</p>
+
+<h2>2. Configuration</h2>
+<p>Every option is a <code>data-*</code> attribute on the host <code>&lt;div&gt;</code>:</p>
+<table>
+<thead><tr><th>Attribute</th><th>Default</th><th>Purpose</th></tr></thead>
+<tbody>
+  <tr><td><code>data-api-key</code></td><td><em>required</em></td><td>Your consumer api_key</td></tr>
+  <tr><td><code>data-base</code></td><td><code>https://www.impacts-foundry.com</code></td><td>Override only for testing</td></tr>
+  <tr><td><code>data-state</code></td><td>all (planning + execution + recent done)</td><td>Comma-separated subset, e.g. <code>planning,execution</code></td></tr>
+  <tr><td><code>data-scale</code></td><td>all</td><td>Comma-separated filter: <code>micro,mid,macro,borderless</code></td></tr>
+  <tr><td><code>data-limit</code></td><td><code>6</code></td><td>Maximum cards to render. Max 100 per API response.</td></tr>
+</tbody>
+</table>
+
+<h2>3. Multiple widgets on one page</h2>
+<p>Drop more than one <code>[data-gmi-widget]</code> div — each auto-discovers its own attributes. Useful for side-by-side category boards:</p>
+<pre>&lt;div data-gmi-widget data-api-key="KEY" data-scale="micro" data-limit="3"&gt;&lt;/div&gt;
+&lt;div data-gmi-widget data-api-key="KEY" data-scale="macro,borderless" data-limit="3"&gt;&lt;/div&gt;</pre>
+
+<h2>4. Programmatic mount (SPAs / route changes)</h2>
+<p>If your site is a single-page app and you inject the widget div after initial render, kick a rescan:</p>
+<pre>window.__GMI_WIDGET__.scan();          // re-discovers any new [data-gmi-widget] divs
+window.__GMI_WIDGET__.mount(element);  // or mount a specific element directly</pre>
+
+<h2>5. What a supporter clicks through to</h2>
+<p>Every CTA on a project card routes through <code>/api/v1/go.php?ask=NN&amp;api_key=KEY</code>. That endpoint:</p>
+<ol>
+  <li>Logs the click (anonymised — no raw IPs, no cookies; per the privacy policy)</li>
+  <li>Attributes the click to your consumer key (so you appear in monthly impact reports)</li>
+  <li>302 redirects to the project's external destination (GoFundMe, ACNC, sponsor's own donation page, etc.)</li>
+</ol>
+<p>If a project has no money-lane ask configured yet, the widget falls back to a "Learn more" link to the project page on impacts-foundry.com.</p>
+
+<h2>6. Live demo</h2>
+<p>(This page has a widget below; if it loads, your CORS origin is registered.)</p>
+<div class="demo">
+  <div data-gmi-widget
+       data-api-key="341f58d5"
+       data-state="planning,execution"
+       data-limit="6"></div>
+</div>
+<script src="/app/widget/v1/embed.js" async></script>
+
+<h2>Privacy &amp; security notes</h2>
+<ul>
+  <li>The widget calls only public endpoints (<code>/api/v1/projects</code>, <code>/api/v1/go.php</code>) with your api_key. No cookies, no user data leaves the host page.</li>
+  <li>Exact coordinates for projects involving minors or vulnerable people <strong>never</strong> reach the widget — the server enforces precision reduction before responding.</li>
+  <li>All project values are HTML-escaped before render to defend against XSS in sponsor-authored fields.</li>
+  <li>The widget bundle is a single static file with no third-party dependencies.</li>
+</ul>
+
+</body>
+</html>

@@ -119,10 +119,52 @@ try {
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
+    /* For each project, find the primary money-lane ask (lowest id
+       active money-lane ask with external_destination_url) so the
+       widget can render a one-click CTA that routes through
+       /api/v1/go.php for attribution. Single batched query keeps
+       the per-row N+1 in check even for the 100-row max. */
+    $primaryAskByProject = [];
+    if ($rows) {
+        $ids = array_map(function ($r) { return (int) $r['id']; }, $rows);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $askStmt = $pdo->prepare("
+            SELECT a.`impact_project_id`, MIN(a.`id`) AS primary_ask_id
+            FROM `contribution_ask` a
+            WHERE a.`impact_project_id` IN ($placeholders)
+              AND a.`is_active` = 1
+              AND a.`lane` = 'money'
+              AND a.`external_destination_url` IS NOT NULL
+              AND a.`external_destination_url` != ''
+            GROUP BY a.`impact_project_id`
+        ");
+        $askStmt->execute($ids);
+        while ($ar = $askStmt->fetch(PDO::FETCH_ASSOC)) {
+            $primaryAskByProject[(int) $ar['impact_project_id']] = (int) $ar['primary_ask_id'];
+        }
+        /* Resolve labels for the primary asks in a second batch. */
+        if ($primaryAskByProject) {
+            $askIds = array_values($primaryAskByProject);
+            $ph2 = implode(',', array_fill(0, count($askIds), '?'));
+            $lbl = $pdo->prepare("SELECT `id`, `label` FROM `contribution_ask` WHERE `id` IN ($ph2)");
+            $lbl->execute($askIds);
+            $labels = [];
+            while ($lr = $lbl->fetch(PDO::FETCH_ASSOC)) {
+                $labels[(int) $lr['id']] = (string) ($lr['label'] ?? '');
+            }
+            foreach ($primaryAskByProject as $pid => $aid) {
+                $primaryAskByProject[$pid] = [
+                    'ask_id' => $aid,
+                    'label'  => $labels[$aid] ?? 'Support this project',
+                ];
+            }
+        }
+    }
+
     /* Brief §6a HARD RULE — precision-reduce coordinates server-side
        BEFORE they reach the client. Projects with vulnerable people
        are hard-clamped to suburb regardless of stored precision. */
-    $cleaned = array_map(function (array $r) use ($pdo): array {
+    $cleaned = array_map(function (array $r) use ($pdo, $primaryAskByProject): array {
         $isVuln = ((int) $r['involves_minors_or_vulnerable']) === 1;
         $precision = $r['location_precision'] ?: 'suburb';
         /* Hard clamp for vulnerable. */
@@ -157,6 +199,7 @@ try {
             ];
         }
 
+        $primary = $primaryAskByProject[(int) $r['id']] ?? null;
         return [
             'id'                            => (int) $r['id'],
             'title'                         => (string) $r['title'],
@@ -172,6 +215,8 @@ try {
             'location_precision'            => $precision,
             'involves_minors_or_vulnerable' => $isVuln,
             'go_live_progress'              => $progress,
+            'primary_ask_id'                => $primary ? $primary['ask_id'] : null,
+            'primary_ask_label'             => $primary ? $primary['label']  : null,
         ];
     }, $rows);
 
