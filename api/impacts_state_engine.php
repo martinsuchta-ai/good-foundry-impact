@@ -44,6 +44,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/impacts_bootstrap.php';
+require_once __DIR__ . '/impacts_notifications.php';
 
 /**
  * Run the scheduler once. Idempotent; safe to call from cron + from
@@ -250,5 +251,17 @@ function impacts_transition(
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $e;
+    }
+
+    /* 2026-06-28 — fire transition notifications AFTER the commit
+       lands. Brief §4: scheduler MUST fire transition-driven CTAs.
+       Wrapped in its own try/catch — a notification failure must
+       never roll back the state change (the state machine is the
+       source of truth; emails are advisory). */
+    try {
+        impacts_notify_transition($pdo, $projectId, $expectedFrom, $toState);
+    } catch (Throwable $_eN) {
+        error_log('[impacts_state_engine] notification failed for project ' . $projectId
+            . ' (' . $expectedFrom . '->' . $toState . '): ' . $_eN->getMessage());
     }
 }
