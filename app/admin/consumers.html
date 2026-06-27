@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Consumers — Impacts Foundry Admin</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body:not(.booted) .shell { visibility: hidden; }
+        .consumers-table { width:100%; border-collapse: collapse; }
+        .consumers-table th, .consumers-table td { padding: 10px 12px; border-bottom: 1px solid var(--border-light); font-size: 12.5px; text-align: left; }
+        .consumers-table th { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); font-weight: 800; background: var(--surface-2); }
+        .active-pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 10px; font-weight: 800; }
+        .active-yes { background: var(--green-pale); color: var(--green); }
+        .active-no  { background: var(--surface-2); color: var(--text-muted); }
+        .key-cell { font-family: var(--mono); font-size: 11px; }
+        .toolbar { display: flex; gap: 12px; margin-bottom: 16px; align-items: flex-end; flex-wrap: wrap; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        @media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } }
+        .form-grid .full { grid-column: 1 / -1; }
+        textarea.field-textarea { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:13px; font-family:inherit; min-height:60px; resize: vertical; }
+        .key-banner { background:#fef9e7; border:1px solid #f8d775; color:#7a5d00; padding:12px 14px; border-radius:8px; margin-bottom:14px; font-size:12px; }
+        .key-banner code { font-family:var(--mono); font-size:12px; background:#fff; padding:3px 8px; border-radius:4px; user-select:all; word-break:break-all; }
+    </style>
+</head>
+<body>
+
+<div class="shell">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            Impacts Foundry
+            <div class="sidebar-brand-sub">Admin</div>
+        </div>
+        <div id="nav"></div>
+        <div style="margin-top:24px;padding-top:14px;border-top:1px solid rgba(255,255,255,.10);font-size:11px;color:rgba(255,255,255,.55)">
+            Signed in as <span id="whoami" style="color:#fff;font-weight:700;display:block;margin-top:3px;word-break:break-all">…</span>
+            <button id="signout-btn" class="btn" style="background:rgba(255,255,255,.08);color:#fff;margin-top:10px;padding:6px 12px;font-size:11px;font-weight:700">Sign out</button>
+        </div>
+    </aside>
+
+    <main class="content">
+        <div class="page-header">
+            <h1 class="page-title">Consumers</h1>
+            <p class="page-sub">Sites embedding Impact widgets — WBM is consumer #1. Each gets an api_key (always server-generated) and a list of widget_origins for CORS.</p>
+        </div>
+
+        <div class="card">
+            <div class="toolbar">
+                <button type="button" class="btn btn-primary" id="new-btn">+ New consumer</button>
+                <button type="button" class="btn" id="refresh-btn" style="background:var(--surface-2);color:var(--text-mid);border:1px solid var(--border)">Refresh</button>
+            </div>
+
+            <div id="msg" class="msg" style="display:none"></div>
+            <div id="key-reveal" class="key-banner" style="display:none"></div>
+
+            <table class="consumers-table" id="table">
+                <thead>
+                    <tr>
+                        <th>ID</th><th>Name</th><th>Slug</th><th>API key</th>
+                        <th>Origins</th><th>Active</th><th>Placements</th><th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody">
+                    <tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:24px">Loading consumers…</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div id="editor-wrap" style="display:none">
+            <div class="card">
+                <div class="card-title" id="editor-title">New consumer</div>
+                <form id="form">
+                    <div class="form-grid">
+                        <div class="field">
+                            <label for="f-name">Name *</label>
+                            <input type="text" id="f-name" name="name" required maxlength="120">
+                        </div>
+                        <div class="field">
+                            <label for="f-slug">Slug * (unique, lowercase a-z0-9-)</label>
+                            <input type="text" id="f-slug" name="slug" required maxlength="60" pattern="[a-z0-9-]+">
+                        </div>
+                        <div class="field full">
+                            <label for="f-origins">Widget origins (comma-separated)</label>
+                            <input type="text" id="f-origins" name="widget_origins" placeholder="https://smart-tools-foundry.com, https://example.com">
+                        </div>
+                        <div class="field full">
+                            <label for="f-notes">Notes</label>
+                            <textarea class="field-textarea" id="f-notes" name="notes"></textarea>
+                        </div>
+                        <div class="field full">
+                            <label style="display:flex;align-items:center;gap:10px;font-size:13px;text-transform:none;letter-spacing:normal;color:var(--text-dark)">
+                                <input type="checkbox" id="f-active" name="is_active" checked>
+                                Active — consumer can authenticate. Uncheck to disable without delete.
+                            </label>
+                        </div>
+                    </div>
+
+                    <div style="display:flex;gap:10px;margin-top:16px">
+                        <button type="submit" class="btn btn-primary" id="save-btn">Save</button>
+                        <button type="button" class="btn" id="cancel-btn" style="background:var(--surface-2);color:var(--text-mid);border:1px solid var(--border)">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="shell.js"></script>
+<script>
+(function () {
+    var API = '../../api/admin/consumers.php';
+    var msg = document.getElementById('msg');
+    var keyBanner = document.getElementById('key-reveal');
+    var tbody = document.getElementById('tbody');
+    var editorWrap = document.getElementById('editor-wrap');
+    var editorTitle = document.getElementById('editor-title');
+    var form = document.getElementById('form');
+    var editingId = null;
+
+    function flash(text, kind) {
+        msg.textContent = text;
+        msg.className = 'msg ' + (kind === 'ok' ? 'msg-ok' : 'msg-error');
+        msg.style.display = '';
+        if (kind === 'ok') setTimeout(function () { msg.style.display = 'none'; }, 4000);
+    }
+    function showKey(label, key) {
+        keyBanner.innerHTML = '<strong>' + label + '</strong> — copy + store this api_key NOW. The list view shows only the first 8 chars. <br><br><code>' + esc(key) + '</code>';
+        keyBanner.style.display = '';
+    }
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+        });
+    }
+    function originsToString(json) {
+        try { var arr = JSON.parse(json || '[]'); return Array.isArray(arr) ? arr.join(', ') : ''; }
+        catch (e) { return ''; }
+    }
+
+    function loadList() {
+        fetch(API + '?action=list', { credentials: 'include', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Failed to load', 'err'); return; }
+                if (!j.consumers.length) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:24px">No consumers yet. Click <strong>+ New consumer</strong> to seed one.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = j.consumers.map(function (c) {
+                    var origins = '';
+                    try { origins = (JSON.parse(c.widget_origins || '[]') || []).length + ' origin(s)'; }
+                    catch (e) { origins = '—'; }
+                    return ''
+                        + '<tr>'
+                        +   '<td><code class="key-cell">' + c.id + '</code></td>'
+                        +   '<td><strong>' + esc(c.name) + '</strong></td>'
+                        +   '<td><code class="key-cell">' + esc(c.slug) + '</code></td>'
+                        +   '<td><code class="key-cell">' + esc(c.api_key_masked) + '</code> <button class="btn" data-reveal="' + c.id + '" style="padding:1px 8px;font-size:10px;background:var(--surface-2);color:var(--text-mid);border:1px solid var(--border);margin-left:4px">Reveal</button></td>'
+                        +   '<td>' + origins + '</td>'
+                        +   '<td><span class="active-pill ' + (parseInt(c.is_active,10) === 1 ? 'active-yes' : 'active-no') + '">' + (parseInt(c.is_active,10) === 1 ? 'Active' : 'Inactive') + '</span></td>'
+                        +   '<td>' + c.placement_count + '</td>'
+                        +   '<td><button class="btn btn-primary" style="padding:5px 11px;font-size:11px" data-edit="' + c.id + '">Edit</button> <button class="btn" data-rotate="' + c.id + '" style="padding:5px 11px;font-size:11px;background:var(--surface-2);color:var(--text-mid);border:1px solid var(--border);margin-left:2px">Rotate key</button></td>'
+                        + '</tr>';
+                }).join('');
+                Array.prototype.forEach.call(tbody.querySelectorAll('[data-edit]'), function (btn) {
+                    btn.addEventListener('click', function () { openEditor(parseInt(btn.getAttribute('data-edit'), 10)); });
+                });
+                Array.prototype.forEach.call(tbody.querySelectorAll('[data-reveal]'), function (btn) {
+                    btn.addEventListener('click', function () { revealKey(parseInt(btn.getAttribute('data-reveal'), 10)); });
+                });
+                Array.prototype.forEach.call(tbody.querySelectorAll('[data-rotate]'), function (btn) {
+                    btn.addEventListener('click', function () { rotateKey(parseInt(btn.getAttribute('data-rotate'), 10)); });
+                });
+            })
+            .catch(function () { flash('Network error loading consumers', 'err'); });
+    }
+
+    function revealKey(id) {
+        fetch(API + '?action=reveal_key&consumer_id=' + id, { credentials: 'include', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Reveal failed', 'err'); return; }
+                showKey('Consumer #' + id + ' api_key revealed', j.api_key);
+            });
+    }
+    function rotateKey(id) {
+        if (!confirm('Rotate the api_key for consumer #' + id + '? This will INVALIDATE the existing key — any consumer site using it stops working until you give them the new one.')) return;
+        fetch(API + '?action=rotate_key&consumer_id=' + id, { method: 'POST', credentials: 'include' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Rotate failed', 'err'); return; }
+                flash('Key rotated for consumer #' + id, 'ok');
+                showKey('NEW api_key for consumer #' + id, j.api_key);
+                loadList();
+            });
+    }
+
+    function openEditor(id) {
+        editingId = id || null;
+        form.reset();
+        editorTitle.textContent = id ? ('Edit consumer #' + id) : 'New consumer';
+        editorWrap.style.display = '';
+        editorWrap.scrollIntoView({ behavior: 'smooth' });
+
+        if (!id) return;
+        fetch(API + '?action=get&consumer_id=' + id, { credentials: 'include', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Could not load', 'err'); return; }
+                var c = j.consumer;
+                document.getElementById('f-name').value = c.name || '';
+                document.getElementById('f-slug').value = c.slug || '';
+                document.getElementById('f-origins').value = originsToString(c.widget_origins);
+                document.getElementById('f-notes').value = c.notes || '';
+                document.getElementById('f-active').checked = parseInt(c.is_active, 10) === 1;
+            });
+    }
+    function closeEditor() { editorWrap.style.display = 'none'; editingId = null; }
+
+    form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var body = {
+            name:           document.getElementById('f-name').value.trim(),
+            slug:           document.getElementById('f-slug').value.trim(),
+            widget_origins: document.getElementById('f-origins').value,
+            notes:          document.getElementById('f-notes').value,
+            is_active:      document.getElementById('f-active').checked
+        };
+        var url = editingId
+            ? (API + '?action=update&consumer_id=' + editingId)
+            : (API + '?action=create');
+        fetch(url, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+            .then(function (res) {
+                if (!res.ok || !res.body || !res.body.ok) {
+                    flash((res.body && res.body.error) || 'Save failed', 'err');
+                    return;
+                }
+                if (!editingId && res.body.api_key) {
+                    showKey('NEW consumer #' + res.body.consumer_id + ' api_key', res.body.api_key);
+                }
+                flash(editingId ? 'Consumer updated' : ('Consumer #' + res.body.consumer_id + ' created'), 'ok');
+                closeEditor();
+                loadList();
+            })
+            .catch(function () { flash('Network error saving', 'err'); });
+    });
+
+    document.getElementById('new-btn').addEventListener('click', function () { openEditor(null); });
+    document.getElementById('cancel-btn').addEventListener('click', closeEditor);
+    document.getElementById('refresh-btn').addEventListener('click', loadList);
+
+    var bootCheck = setInterval(function () {
+        if (document.body.classList.contains('booted')) {
+            clearInterval(bootCheck);
+            loadList();
+        }
+    }, 100);
+})();
+</script>
+
+</body>
+</html>

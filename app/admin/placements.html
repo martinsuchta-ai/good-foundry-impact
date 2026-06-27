@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Placements — Impacts Foundry Admin</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body:not(.booted) .shell { visibility: hidden; }
+        .table { width:100%; border-collapse: collapse; }
+        .table th, .table td { padding: 10px 12px; border-bottom: 1px solid var(--border-light); font-size: 12.5px; text-align: left; }
+        .table th { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); font-weight: 800; background: var(--surface-2); }
+        .active-pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 10px; font-weight: 800; }
+        .active-yes { background: var(--green-pale); color: var(--green); }
+        .active-no  { background: var(--surface-2); color: var(--text-muted); }
+        .toolbar { display: flex; gap: 12px; margin-bottom: 16px; align-items: flex-end; flex-wrap: wrap; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        @media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } }
+        .form-grid .full { grid-column: 1 / -1; }
+        textarea.field-textarea { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:13px; font-family:inherit; min-height:60px; resize: vertical; }
+        select.field-select { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:13px; font-family:inherit; background:#fff; }
+    </style>
+</head>
+<body>
+
+<div class="shell">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            Impacts Foundry
+            <div class="sidebar-brand-sub">Admin</div>
+        </div>
+        <div id="nav"></div>
+        <div style="margin-top:24px;padding-top:14px;border-top:1px solid rgba(255,255,255,.10);font-size:11px;color:rgba(255,255,255,.55)">
+            Signed in as <span id="whoami" style="color:#fff;font-weight:700;display:block;margin-top:3px;word-break:break-all">…</span>
+            <button id="signout-btn" class="btn" style="background:rgba(255,255,255,.08);color:#fff;margin-top:10px;padding:6px 12px;font-size:11px;font-weight:700">Sign out</button>
+        </div>
+    </aside>
+
+    <main class="content">
+        <div class="page-header">
+            <h1 class="page-title">Placements</h1>
+            <p class="page-sub">Named slots within a consumer where projects render. Each placement is scoped to one consumer; slugs are unique per consumer (so WBM and a partner site can both have a "bank-rail" slot without collision).</p>
+        </div>
+
+        <div class="card">
+            <div class="toolbar">
+                <button type="button" class="btn btn-primary" id="new-btn">+ New placement</button>
+                <button type="button" class="btn" id="refresh-btn" style="background:var(--surface-2);color:var(--text-mid);border:1px solid var(--border)">Refresh</button>
+            </div>
+
+            <div id="msg" class="msg" style="display:none"></div>
+
+            <table class="table" id="table">
+                <thead>
+                    <tr>
+                        <th>ID</th><th>Consumer</th><th>Name</th><th>Slug</th>
+                        <th>Active</th><th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody">
+                    <tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px">Loading placements…</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div id="editor-wrap" style="display:none">
+            <div class="card">
+                <div class="card-title" id="editor-title">New placement</div>
+                <form id="form">
+                    <div class="form-grid">
+                        <div class="field">
+                            <label for="f-consumer-id">Consumer *</label>
+                            <select class="field-select" id="f-consumer-id" name="consumer_id" required>
+                                <option value="">— pick a consumer —</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="f-name">Name *</label>
+                            <input type="text" id="f-name" name="name" required maxlength="120">
+                        </div>
+                        <div class="field full">
+                            <label for="f-slug">Slug * (unique within consumer, lowercase a-z0-9-)</label>
+                            <input type="text" id="f-slug" name="slug" required maxlength="80" pattern="[a-z0-9-]+">
+                        </div>
+                        <div class="field full">
+                            <label for="f-description">Description</label>
+                            <textarea class="field-textarea" id="f-description" name="description"></textarea>
+                        </div>
+                        <div class="field full">
+                            <label style="display:flex;align-items:center;gap:10px;font-size:13px;text-transform:none;letter-spacing:normal;color:var(--text-dark)">
+                                <input type="checkbox" id="f-active" name="is_active" checked>
+                                Active — placement can render projects. Uncheck to disable without delete.
+                            </label>
+                        </div>
+                    </div>
+
+                    <div style="display:flex;gap:10px;margin-top:16px">
+                        <button type="submit" class="btn btn-primary" id="save-btn">Save</button>
+                        <button type="button" class="btn" id="cancel-btn" style="background:var(--surface-2);color:var(--text-mid);border:1px solid var(--border)">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="shell.js"></script>
+<script>
+(function () {
+    var API = '../../api/admin/placements.php';
+    var CONSUMERS_API = '../../api/admin/consumers.php';
+    var msg = document.getElementById('msg');
+    var tbody = document.getElementById('tbody');
+    var editorWrap = document.getElementById('editor-wrap');
+    var editorTitle = document.getElementById('editor-title');
+    var form = document.getElementById('form');
+    var editingId = null;
+
+    function flash(text, kind) {
+        msg.textContent = text;
+        msg.className = 'msg ' + (kind === 'ok' ? 'msg-ok' : 'msg-error');
+        msg.style.display = '';
+        if (kind === 'ok') setTimeout(function () { msg.style.display = 'none'; }, 3500);
+    }
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+        });
+    }
+
+    function loadConsumers() {
+        return fetch(CONSUMERS_API + '?action=list', { credentials: 'include', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) return [];
+                return j.consumers;
+            });
+    }
+
+    function loadList() {
+        fetch(API + '?action=list', { credentials: 'include', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Failed to load', 'err'); return; }
+                if (!j.placements.length) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px">No placements yet. Click <strong>+ New placement</strong> to create one (you need at least one consumer first).</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = j.placements.map(function (p) {
+                    return ''
+                        + '<tr>'
+                        +   '<td><code style="font-family:var(--mono);font-size:11px">' + p.id + '</code></td>'
+                        +   '<td>' + esc(p.consumer_name) + ' <span style="color:var(--text-muted);font-family:var(--mono);font-size:10px">' + esc(p.consumer_slug) + '</span></td>'
+                        +   '<td><strong>' + esc(p.name) + '</strong></td>'
+                        +   '<td><code style="font-family:var(--mono);font-size:11px">' + esc(p.slug) + '</code></td>'
+                        +   '<td><span class="active-pill ' + (parseInt(p.is_active,10) === 1 ? 'active-yes' : 'active-no') + '">' + (parseInt(p.is_active,10) === 1 ? 'Active' : 'Inactive') + '</span></td>'
+                        +   '<td><button class="btn btn-primary" style="padding:5px 11px;font-size:11px" data-edit="' + p.id + '">Edit</button></td>'
+                        + '</tr>';
+                }).join('');
+                Array.prototype.forEach.call(tbody.querySelectorAll('[data-edit]'), function (btn) {
+                    btn.addEventListener('click', function () { openEditor(parseInt(btn.getAttribute('data-edit'), 10)); });
+                });
+            })
+            .catch(function () { flash('Network error loading placements', 'err'); });
+    }
+
+    function populateConsumerSelect(selectedId) {
+        var sel = document.getElementById('f-consumer-id');
+        loadConsumers().then(function (consumers) {
+            sel.innerHTML = '<option value="">— pick a consumer —</option>'
+                + consumers.map(function (c) {
+                    return '<option value="' + c.id + '"' + (selectedId == c.id ? ' selected' : '') + '>'
+                         + esc(c.name) + ' (' + esc(c.slug) + ')</option>';
+                }).join('');
+        });
+    }
+
+    function openEditor(id) {
+        editingId = id || null;
+        form.reset();
+        editorTitle.textContent = id ? ('Edit placement #' + id) : 'New placement';
+        editorWrap.style.display = '';
+        editorWrap.scrollIntoView({ behavior: 'smooth' });
+
+        if (!id) {
+            populateConsumerSelect(null);
+            return;
+        }
+        fetch(API + '?action=get&placement_id=' + id, { credentials: 'include', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Could not load', 'err'); return; }
+                var p = j.placement;
+                document.getElementById('f-name').value = p.name || '';
+                document.getElementById('f-slug').value = p.slug || '';
+                document.getElementById('f-description').value = p.description || '';
+                document.getElementById('f-active').checked = parseInt(p.is_active, 10) === 1;
+                populateConsumerSelect(p.consumer_id);
+            });
+    }
+    function closeEditor() { editorWrap.style.display = 'none'; editingId = null; }
+
+    form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var body = {
+            consumer_id: parseInt(document.getElementById('f-consumer-id').value, 10) || 0,
+            name:        document.getElementById('f-name').value.trim(),
+            slug:        document.getElementById('f-slug').value.trim(),
+            description: document.getElementById('f-description').value,
+            is_active:   document.getElementById('f-active').checked
+        };
+        var url = editingId
+            ? (API + '?action=update&placement_id=' + editingId)
+            : (API + '?action=create');
+        fetch(url, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+            .then(function (res) {
+                if (!res.ok || !res.body || !res.body.ok) {
+                    flash((res.body && res.body.error) || 'Save failed', 'err');
+                    return;
+                }
+                flash(editingId ? 'Placement updated' : ('Placement #' + res.body.placement_id + ' created'), 'ok');
+                closeEditor();
+                loadList();
+            })
+            .catch(function () { flash('Network error saving', 'err'); });
+    });
+
+    document.getElementById('new-btn').addEventListener('click', function () { openEditor(null); });
+    document.getElementById('cancel-btn').addEventListener('click', closeEditor);
+    document.getElementById('refresh-btn').addEventListener('click', loadList);
+
+    var bootCheck = setInterval(function () {
+        if (document.body.classList.contains('booted')) {
+            clearInterval(bootCheck);
+            loadList();
+        }
+    }, 100);
+})();
+</script>
+
+</body>
+</html>
