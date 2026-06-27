@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Sponsors — Impacts Foundry Admin</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body:not(.booted) .shell { visibility: hidden; }
+        .sponsors-table { width:100%; border-collapse: collapse; }
+        .sponsors-table th, .sponsors-table td { padding: 10px 12px; border-bottom: 1px solid var(--border-light); font-size: 12.5px; text-align: left; }
+        .sponsors-table th { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); font-weight: 800; background: var(--surface-2); }
+        .verified-pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 10px; font-weight: 800; }
+        .verified-yes { background: var(--green-pale); color: var(--green); }
+        .verified-no  { background: var(--surface-2); color: var(--text-muted); }
+        .toolbar { display: flex; gap: 12px; margin-bottom: 16px; align-items: flex-end; flex-wrap: wrap; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        @media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } }
+        .form-grid .full { grid-column: 1 / -1; }
+        textarea.field-textarea { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:13px; font-family:inherit; min-height:60px; resize: vertical; }
+    </style>
+</head>
+<body>
+
+<div class="shell">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            Impacts Foundry
+            <div class="sidebar-brand-sub">Admin</div>
+        </div>
+        <div id="nav"></div>
+        <div style="margin-top:24px;padding-top:14px;border-top:1px solid rgba(255,255,255,.10);font-size:11px;color:rgba(255,255,255,.55)">
+            Signed in as <span id="whoami" style="color:#fff;font-weight:700;display:block;margin-top:3px;word-break:break-all">…</span>
+            <button id="signout-btn" class="btn" style="background:rgba(255,255,255,.08);color:#fff;margin-top:10px;padding:6px 12px;font-size:11px;font-weight:700">Sign out</button>
+        </div>
+    </aside>
+
+    <main class="content">
+        <div class="page-header">
+            <h1 class="page-title">Sponsors</h1>
+            <p class="page-sub">Project creators / stewards (brief §2). Identity verification is captured here at the sponsor level — a verified sponsor can run multiple projects without re-verifying. Per-project safeguarding (WWCC etc.) lives separately in the project record.</p>
+        </div>
+
+        <div class="card">
+            <div class="toolbar">
+                <button type="button" class="btn btn-primary" id="new-sponsor-btn">+ New sponsor</button>
+                <button type="button" class="btn" id="refresh-btn" style="background:var(--surface-2);color:var(--text-mid);border:1px solid var(--border)">Refresh</button>
+            </div>
+
+            <div id="msg" class="msg" style="display:none"></div>
+
+            <table class="sponsors-table" id="sponsors-table">
+                <thead>
+                    <tr>
+                        <th>ID</th><th>Display name</th><th>Email</th><th>Organisation</th>
+                        <th>Verified</th><th>Projects</th><th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="sponsors-tbody">
+                    <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px">Loading sponsors…</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div id="editor-wrap" style="display:none">
+            <div class="card">
+                <div class="card-title" id="editor-title">New sponsor</div>
+                <form id="sponsor-form">
+                    <div class="form-grid">
+                        <div class="field">
+                            <label for="f-display-name">Display name *</label>
+                            <input type="text" id="f-display-name" name="display_name" required maxlength="160">
+                        </div>
+                        <div class="field">
+                            <label for="f-email">Email</label>
+                            <input type="email" id="f-email" name="email" maxlength="255">
+                        </div>
+                        <div class="field full">
+                            <label for="f-org-name">Organisation</label>
+                            <input type="text" id="f-org-name" name="org_name" maxlength="200">
+                        </div>
+                        <div class="field full">
+                            <label for="f-notes">Notes</label>
+                            <textarea class="field-textarea" id="f-notes" name="notes"></textarea>
+                        </div>
+                        <div class="field full">
+                            <label style="display:flex;align-items:center;gap:10px;font-size:13px;text-transform:none;letter-spacing:normal;color:var(--text-dark)">
+                                <input type="checkbox" id="f-verified" name="verified">
+                                Verified — sponsor's identity has been checked. Required before any project of theirs can enter execution at macro/borderless tiers (brief §8).
+                            </label>
+                        </div>
+                    </div>
+
+                    <div style="display:flex;gap:10px;margin-top:16px">
+                        <button type="submit" class="btn btn-primary" id="save-btn">Save</button>
+                        <button type="button" class="btn" id="cancel-btn" style="background:var(--surface-2);color:var(--text-mid);border:1px solid var(--border)">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="shell.js"></script>
+<script>
+(function () {
+    var API = '../../api/admin/sponsors.php';
+    var msg = document.getElementById('msg');
+    var tbody = document.getElementById('sponsors-tbody');
+    var editorWrap = document.getElementById('editor-wrap');
+    var editorTitle = document.getElementById('editor-title');
+    var form = document.getElementById('sponsor-form');
+    var editingId = null;
+
+    function flash(text, kind) {
+        msg.textContent = text;
+        msg.className = 'msg ' + (kind === 'ok' ? 'msg-ok' : 'msg-error');
+        msg.style.display = '';
+        if (kind === 'ok') setTimeout(function () { msg.style.display = 'none'; }, 3500);
+    }
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+        });
+    }
+
+    function loadList() {
+        fetch(API + '?action=list', { credentials: 'include', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Failed to load', 'err'); return; }
+                if (!j.sponsors.length) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px">No sponsors yet. Click <strong>+ New sponsor</strong> to seed one.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = j.sponsors.map(function (s) {
+                    return ''
+                        + '<tr>'
+                        +   '<td><code style="font-family:var(--mono);font-size:11px">' + s.id + '</code></td>'
+                        +   '<td><strong>' + esc(s.display_name) + '</strong></td>'
+                        +   '<td>' + (s.email ? esc(s.email) : '<span style="color:var(--text-muted)">—</span>') + '</td>'
+                        +   '<td>' + (s.org_name ? esc(s.org_name) : '<span style="color:var(--text-muted)">—</span>') + '</td>'
+                        +   '<td><span class="verified-pill ' + (parseInt(s.verified,10) === 1 ? 'verified-yes' : 'verified-no') + '">' + (parseInt(s.verified,10) === 1 ? '✓ Verified' : 'Pending') + '</span></td>'
+                        +   '<td>' + s.project_count + '</td>'
+                        +   '<td><button class="btn btn-primary" style="padding:5px 11px;font-size:11px" data-edit="' + s.id + '">Edit</button></td>'
+                        + '</tr>';
+                }).join('');
+                Array.prototype.forEach.call(tbody.querySelectorAll('[data-edit]'), function (btn) {
+                    btn.addEventListener('click', function () { openEditor(parseInt(btn.getAttribute('data-edit'), 10)); });
+                });
+            })
+            .catch(function () { flash('Network error loading sponsors', 'err'); });
+    }
+
+    function openEditor(sponsorId) {
+        editingId = sponsorId || null;
+        form.reset();
+        editorTitle.textContent = sponsorId ? ('Edit sponsor #' + sponsorId) : 'New sponsor';
+        editorWrap.style.display = '';
+        editorWrap.scrollIntoView({ behavior: 'smooth' });
+
+        if (!sponsorId) return;
+        fetch(API + '?action=get&sponsor_id=' + sponsorId, { credentials: 'include', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Could not load sponsor', 'err'); return; }
+                var s = j.sponsor;
+                document.getElementById('f-display-name').value = s.display_name || '';
+                document.getElementById('f-email').value = s.email || '';
+                document.getElementById('f-org-name').value = s.org_name || '';
+                document.getElementById('f-notes').value = s.notes || '';
+                document.getElementById('f-verified').checked = parseInt(s.verified, 10) === 1;
+            });
+    }
+    function closeEditor() { editorWrap.style.display = 'none'; editingId = null; }
+
+    form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var body = {
+            display_name: document.getElementById('f-display-name').value.trim(),
+            email:        document.getElementById('f-email').value.trim(),
+            org_name:     document.getElementById('f-org-name').value.trim(),
+            notes:        document.getElementById('f-notes').value.trim(),
+            verified:     document.getElementById('f-verified').checked
+        };
+        var url = editingId
+            ? (API + '?action=update&sponsor_id=' + editingId)
+            : (API + '?action=create');
+        fetch(url, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+            .then(function (res) {
+                if (!res.ok || !res.body || !res.body.ok) {
+                    flash((res.body && res.body.error) || 'Save failed', 'err');
+                    return;
+                }
+                flash(editingId ? 'Sponsor updated' : ('Sponsor #' + res.body.sponsor_id + ' created'), 'ok');
+                closeEditor();
+                loadList();
+            })
+            .catch(function () { flash('Network error saving', 'err'); });
+    });
+
+    document.getElementById('new-sponsor-btn').addEventListener('click', function () { openEditor(null); });
+    document.getElementById('cancel-btn').addEventListener('click', closeEditor);
+    document.getElementById('refresh-btn').addEventListener('click', loadList);
+
+    var bootCheck = setInterval(function () {
+        if (document.body.classList.contains('booted')) {
+            clearInterval(bootCheck);
+            loadList();
+        }
+    }, 100);
+})();
+</script>
+
+</body>
+</html>

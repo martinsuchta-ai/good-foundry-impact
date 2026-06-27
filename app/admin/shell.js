@@ -27,6 +27,7 @@
             { href: 'index.html',     label: 'Dashboard' },
             { href: 'consumers.html', label: 'Consumers' },
             { href: 'placements.html', label: 'Placements' },
+            { href: 'sponsors.html',  label: 'Sponsors' },
             { href: 'projects.html',  label: 'Impact projects' },
         ];
         nav.innerHTML = items.map(function (it) {
