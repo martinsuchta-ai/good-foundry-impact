@@ -24,11 +24,13 @@
         if (!nav) return;
         var here = (location.pathname.split('/').pop() || 'index.html');
         var items = [
-            { href: 'index.html',     label: 'Dashboard' },
-            { href: 'consumers.html', label: 'Consumers' },
-            { href: 'placements.html', label: 'Placements' },
-            { href: 'sponsors.html',  label: 'Sponsors' },
-            { href: 'projects.html',  label: 'Impact projects' },
+            { href: 'index.html',         label: 'Dashboard' },
+            { href: 'consumers.html',     label: 'Consumers' },
+            { href: 'placements.html',    label: 'Placements' },
+            { href: 'sponsors.html',      label: 'Sponsors' },
+            { href: 'projects.html',      label: 'Impact projects' },
+            { href: 'safeguarding.html',  label: 'Safeguarding' },
+            { href: 'impact_report.html', label: 'Impact report' },
         ];
         nav.innerHTML = items.map(function (it) {
             var cls = (here === it.href) ? 'nav-item active' : 'nav-item';

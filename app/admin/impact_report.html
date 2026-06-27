@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Impact report — Impacts Foundry Admin</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body:not(.booted) .shell { visibility: hidden; }
+        .ir-toolbar { display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; margin-bottom:18px; }
+        .ir-toolbar .field { display:flex; flex-direction:column; gap:4px; }
+        .ir-toolbar label { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-muted); font-weight:800; }
+        .ir-toolbar input { padding:8px 12px; border:1px solid var(--border); border-radius:6px; font-size:13px; min-width:140px; }
+        .ir-summary { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:14px; margin-bottom:18px; }
+        .ir-card { background:var(--surface-2); padding:16px 18px; border-radius:8px; }
+        .ir-card .label { font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--text-muted); font-weight:800; }
+        .ir-card .value { font-size:28px; font-weight:800; color:var(--text-dark); margin-top:4px; line-height:1.1; }
+        .ir-card .sub { font-size:11px; color:var(--text-muted); margin-top:2px; }
+        .ir-card.conv .value { color:#16a34a; }
+        .ir-card.clicks .value { color:#f97316; }
+        .ir-tables { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+        @media (max-width: 980px) { .ir-tables { grid-template-columns: 1fr; } }
+        .ir-table { width:100%; border-collapse:collapse; }
+        .ir-table th, .ir-table td { padding:8px 12px; border-bottom:1px solid var(--border-light); font-size:12.5px; text-align:left; }
+        .ir-table th { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-muted); font-weight:800; background:var(--surface-2); }
+        .ir-table td.num { text-align:right; font-weight:700; font-family:Menlo,Consolas,monospace; }
+        .ir-empty { color:var(--text-muted); font-style:italic; text-align:center; padding:18px; font-size:13px; }
+        .ir-window { font-size:12px; color:var(--text-muted); margin:-6px 0 18px; }
+        .ir-window code { background:var(--surface-2); padding:2px 6px; border-radius:4px; font-family:Menlo,Consolas,monospace; }
+        .ir-spark { display:flex; align-items:flex-end; gap:2px; height:60px; padding:8px 0; }
+        .ir-bar { flex:1; background:#f97316; opacity:.85; border-radius:2px 2px 0 0; min-height:2px; transition: opacity .15s; }
+        .ir-bar:hover { opacity:1; }
+        .ir-bar-day { font-size:9px; color:var(--text-muted); text-align:center; margin-top:4px; }
+    </style>
+</head>
+<body>
+
+<div class="shell">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            Impacts Foundry
+            <div class="sidebar-brand-sub">Admin</div>
+        </div>
+        <div id="nav"></div>
+        <div style="margin-top:24px;padding-top:14px;border-top:1px solid rgba(255,255,255,.10);font-size:11px;color:rgba(255,255,255,.55)">
+            Signed in as <span id="whoami" style="color:#fff;font-weight:700;display:block;margin-top:3px;word-break:break-all">…</span>
+            <button id="signout-btn" class="btn" style="background:rgba(255,255,255,.08);color:#fff;margin-top:10px;padding:6px 12px;font-size:11px;font-weight:700">Sign out</button>
+        </div>
+    </aside>
+
+    <main class="content">
+        <div class="page-header">
+            <h1 class="page-title">Impact report</h1>
+            <p class="page-sub">Clicks attributed to consumers, project-level pledge progress, and conversion. Brief §7 — the click_event + contribution_pledge stream surfaced. Filter by window, consumer, or project.</p>
+        </div>
+
+        <div id="msg" class="msg" style="display:none"></div>
+
+        <div class="card">
+            <div class="ir-toolbar">
+                <div class="field">
+                    <label for="f-since">From</label>
+                    <input type="date" id="f-since">
+                </div>
+                <div class="field">
+                    <label for="f-until">To</label>
+                    <input type="date" id="f-until">
+                </div>
+                <div class="field">
+                    <label for="f-consumer">Consumer (optional)</label>
+                    <select id="f-consumer" style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:200px"><option value="">All consumers</option></select>
+                </div>
+                <div class="field">
+                    <label for="f-project">Project id (optional)</label>
+                    <input type="number" id="f-project" min="1" placeholder="e.g. 42">
+                </div>
+                <button type="button" class="btn btn-primary" id="apply-btn">Apply</button>
+                <button type="button" class="btn" id="reset-btn" style="background:var(--surface-2);color:var(--text-mid);border:1px solid var(--border)">Reset</button>
+            </div>
+            <div class="ir-window" id="window-line">Loading…</div>
+        </div>
+
+        <div class="ir-summary" id="summary-cards">
+            <div class="ir-card clicks"><div class="label">Total clicks</div><div class="value" id="sum-clicks">…</div><div class="sub">via /api/v1/go.php</div></div>
+            <div class="ir-card"><div class="label">Distinct supporters</div><div class="value" id="sum-supporters">…</div><div class="sub">via pledge supporter_id</div></div>
+            <div class="ir-card"><div class="label">Total pledges</div><div class="value" id="sum-pledges">…</div><div class="sub" id="sum-pledges-sub">money / effort / energy split</div></div>
+            <div class="ir-card conv"><div class="label">Conversion (pledges / clicks)</div><div class="value" id="sum-conv">…</div><div class="sub">caps at 100%; null when no clicks</div></div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Daily clicks</div>
+            <div id="spark-wrap"></div>
+        </div>
+
+        <div class="ir-tables">
+            <div class="card">
+                <div class="card-title">Top consumers by clicks</div>
+                <table class="ir-table">
+                    <thead><tr><th>Consumer</th><th style="text-align:right">Clicks</th></tr></thead>
+                    <tbody id="tbl-consumers"><tr><td colspan="2" class="ir-empty">Loading…</td></tr></tbody>
+                </table>
+            </div>
+            <div class="card">
+                <div class="card-title">Top projects by clicks</div>
+                <table class="ir-table">
+                    <thead><tr><th>Project</th><th style="text-align:right">Clicks</th></tr></thead>
+                    <tbody id="tbl-projects-clicks"><tr><td colspan="2" class="ir-empty">Loading…</td></tr></tbody>
+                </table>
+            </div>
+            <div class="card" style="grid-column: 1 / -1">
+                <div class="card-title">Top projects by pledges</div>
+                <table class="ir-table">
+                    <thead><tr><th>Project</th><th style="text-align:right">Pledges</th><th style="text-align:right">Supporters</th></tr></thead>
+                    <tbody id="tbl-projects-pledges"><tr><td colspan="3" class="ir-empty">Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script src="shell.js"></script>
+<script>
+(function () {
+    var REPORT_API   = '../../api/admin/impact_report.php';
+    var CONSUMERS_API = '../../api/admin/consumers.php?action=list';
+    var msg = document.getElementById('msg');
+
+    function flash(text, kind) {
+        msg.textContent = text;
+        msg.className = 'msg ' + (kind === 'ok' ? 'msg-ok' : 'msg-error');
+        msg.style.display = '';
+        if (kind === 'ok') setTimeout(function () { msg.style.display = 'none'; }, 4000);
+    }
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+        });
+    }
+    function fmtDate(s) {
+        if (!s) return '—';
+        try {
+            var d = new Date(String(s).replace(' ', 'T') + (String(s).length === 10 ? 'T00:00:00Z' : 'Z'));
+            return d.toLocaleDateString(undefined, { day:'2-digit', month:'short', year:'numeric' });
+        } catch (_) { return s; }
+    }
+    function todayIso() {
+        var d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+    function daysAgoIso(n) {
+        var d = new Date();
+        d.setDate(d.getDate() - n);
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    function loadConsumers() {
+        return fetch(CONSUMERS_API, { credentials:'include', cache:'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) return;
+                var sel = document.getElementById('f-consumer');
+                (j.consumers || []).forEach(function (c) {
+                    var opt = document.createElement('option');
+                    opt.value = c.id;
+                    opt.textContent = '#' + c.id + ' — ' + c.name;
+                    sel.appendChild(opt);
+                });
+            })
+            .catch(function () { /* non-fatal — sel just stays as "All consumers" */ });
+    }
+
+    function loadReport() {
+        var since = document.getElementById('f-since').value;
+        var until = document.getElementById('f-until').value;
+        var consumerId = document.getElementById('f-consumer').value;
+        var projectId = document.getElementById('f-project').value;
+
+        var qs = [];
+        if (since) qs.push('since=' + encodeURIComponent(since));
+        if (until) qs.push('until=' + encodeURIComponent(until));
+        if (consumerId) qs.push('consumer_id=' + encodeURIComponent(consumerId));
+        if (projectId) qs.push('project_id=' + encodeURIComponent(projectId));
+
+        fetch(REPORT_API + (qs.length ? ('?' + qs.join('&')) : ''), { credentials:'include', cache:'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Report failed', 'err'); return; }
+                paint(j);
+            })
+            .catch(function () { flash('Network error loading report', 'err'); });
+    }
+
+    function paint(j) {
+        document.getElementById('window-line').innerHTML =
+            'Window: <code>' + esc(j.window.since || 'all time') + '</code> → <code>' + esc(j.window.until || 'now') + '</code>'
+            + (j.scope.consumer_id ? ' &middot; consumer <code>#' + esc(j.scope.consumer_id) + '</code>' : '')
+            + (j.scope.project_id  ? ' &middot; project <code>#' + esc(j.scope.project_id)  + '</code>' : '')
+            + ' &middot; generated ' + fmtDate(j.generated_at);
+
+        document.getElementById('sum-clicks').textContent     = j.clicks.total_clicks.toLocaleString();
+        document.getElementById('sum-supporters').textContent = j.pledges.distinct_supporters.toLocaleString();
+        document.getElementById('sum-pledges').textContent    = j.pledges.total_pledges.toLocaleString();
+        document.getElementById('sum-pledges-sub').textContent =
+            'money ' + j.pledges.money_pledges
+            + ' · effort ' + j.pledges.effort_pledges
+            + ' · energy ' + j.pledges.energy_pledges;
+        document.getElementById('sum-conv').textContent =
+            (j.conversion_pct === null ? '—' : (j.conversion_pct + '%'));
+
+        /* Daily clicks sparkline. */
+        var sparkWrap = document.getElementById('spark-wrap');
+        if (!j.clicks.by_day.length) {
+            sparkWrap.innerHTML = '<div class="ir-empty">No clicks in this window.</div>';
+        } else {
+            var maxV = Math.max.apply(null, j.clicks.by_day.map(function (d) { return d.clicks; })) || 1;
+            sparkWrap.innerHTML =
+                '<div class="ir-spark">' +
+                  j.clicks.by_day.map(function (d) {
+                    var h = Math.max(2, Math.round(d.clicks / maxV * 100));
+                    return '<div class="ir-bar" style="height:' + h + '%" title="' + esc(d.day) + ': ' + d.clicks + ' clicks"></div>';
+                  }).join('') +
+                '</div>' +
+                '<div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);margin-top:4px">' +
+                  '<span>' + esc(j.clicks.by_day[0].day) + '</span>' +
+                  '<span>' + esc(j.clicks.by_day[j.clicks.by_day.length - 1].day) + '</span>' +
+                '</div>';
+        }
+
+        /* Top consumers. */
+        var tcons = document.getElementById('tbl-consumers');
+        if (!j.clicks.by_consumer.length) {
+            tcons.innerHTML = '<tr><td colspan="2" class="ir-empty">No clicks attributed to any consumer in this window.</td></tr>';
+        } else {
+            tcons.innerHTML = j.clicks.by_consumer.map(function (c) {
+                return '<tr>'
+                    + '<td>' + esc(c.consumer_name || '(anonymous)') + (c.consumer_id ? ' <span style="color:var(--text-muted);font-size:11px">#' + c.consumer_id + '</span>' : '') + '</td>'
+                    + '<td class="num">' + c.clicks.toLocaleString() + '</td>'
+                    + '</tr>';
+            }).join('');
+        }
+
+        /* Top projects by clicks. */
+        var tprc = document.getElementById('tbl-projects-clicks');
+        if (!j.clicks.by_project.length) {
+            tprc.innerHTML = '<tr><td colspan="2" class="ir-empty">No project-attributed clicks in this window.</td></tr>';
+        } else {
+            tprc.innerHTML = j.clicks.by_project.map(function (p) {
+                return '<tr>'
+                    + '<td><a href="projects.html?id=' + p.project_id + '" style="color:var(--orange);text-decoration:none">#' + p.project_id + '</a> &middot; ' + esc(p.project_title) + '</td>'
+                    + '<td class="num">' + p.clicks.toLocaleString() + '</td>'
+                    + '</tr>';
+            }).join('');
+        }
+
+        /* Top projects by pledges. */
+        var tprp = document.getElementById('tbl-projects-pledges');
+        if (!j.pledges.by_project.length) {
+            tprp.innerHTML = '<tr><td colspan="3" class="ir-empty">No pledges recorded against any project in this window.</td></tr>';
+        } else {
+            tprp.innerHTML = j.pledges.by_project.map(function (p) {
+                return '<tr>'
+                    + '<td><a href="projects.html?id=' + p.project_id + '" style="color:var(--orange);text-decoration:none">#' + p.project_id + '</a> &middot; ' + esc(p.project_title) + '</td>'
+                    + '<td class="num">' + p.pledges.toLocaleString() + '</td>'
+                    + '<td class="num">' + p.supporters.toLocaleString() + '</td>'
+                    + '</tr>';
+            }).join('');
+        }
+    }
+
+    document.getElementById('apply-btn').addEventListener('click', loadReport);
+    document.getElementById('reset-btn').addEventListener('click', function () {
+        document.getElementById('f-since').value = daysAgoIso(30);
+        document.getElementById('f-until').value = todayIso();
+        document.getElementById('f-consumer').value = '';
+        document.getElementById('f-project').value = '';
+        loadReport();
+    });
+
+    var bootCheck = setInterval(function () {
+        if (document.body.classList.contains('booted')) {
+            clearInterval(bootCheck);
+            document.getElementById('f-since').value = daysAgoIso(30);
+            document.getElementById('f-until').value = todayIso();
+            loadConsumers().then(loadReport);
+        }
+    }, 100);
+})();
+</script>
+
+</body>
+</html>

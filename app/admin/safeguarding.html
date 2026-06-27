@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Safeguarding — Impacts Foundry Admin</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body:not(.booted) .shell { visibility: hidden; }
+        .sg-table { width:100%; border-collapse: collapse; }
+        .sg-table th, .sg-table td { padding: 10px 12px; border-bottom: 1px solid var(--border-light); font-size: 12.5px; text-align: left; vertical-align: top; }
+        .sg-table th { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); font-weight: 800; background: var(--surface-2); }
+        .status-pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:10px; font-weight:800; text-transform: uppercase; letter-spacing:.04em; }
+        .status-pending  { background: #fef3c7; color: #92400e; }
+        .status-verified { background: #dcfce7; color: #166534; }
+        .status-rejected { background: #fee2e2; color: #991b1b; }
+        .status-not_required { background: var(--surface-2); color: var(--text-muted); }
+        .state-pill { display:inline-block; padding:1px 7px; border-radius:99px; font-size:10px; font-weight:700; }
+        .state-mission   { background:#e0e7ff; color:#3730a3; }
+        .state-planning  { background:#fef3c7; color:#92400e; }
+        .state-execution { background:#dcfce7; color:#166534; }
+        .state-done      { background:var(--surface-2); color:var(--text-muted); }
+        .latest-decision { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+        .latest-decision strong { color: var(--text-mid); }
+        .counts-row { display:flex; gap:18px; margin-bottom:18px; }
+        .count-card { flex:1; background: var(--surface-2); padding: 14px 16px; border-radius: 8px; }
+        .count-card .label { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--text-muted); font-weight: 800; }
+        .count-card .value { font-size: 28px; font-weight: 800; color: var(--text-dark); margin-top: 4px; }
+        .count-blocked .value { color: #b91c1c; }
+        .review-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+        .review-form .full { grid-column: 1 / -1; }
+        .review-form textarea { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:13px; font-family:inherit; min-height:60px; resize: vertical; }
+        .review-form select { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:13px; }
+        .review-row td { background: #fefce8; }
+        .days-overdue { color: #b91c1c; font-weight: 700; }
+    </style>
+</head>
+<body>
+
+<div class="shell">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            Impacts Foundry
+            <div class="sidebar-brand-sub">Admin</div>
+        </div>
+        <div id="nav"></div>
+        <div style="margin-top:24px;padding-top:14px;border-top:1px solid rgba(255,255,255,.10);font-size:11px;color:rgba(255,255,255,.55)">
+            Signed in as <span id="whoami" style="color:#fff;font-weight:700;display:block;margin-top:3px;word-break:break-all">…</span>
+            <button id="signout-btn" class="btn" style="background:rgba(255,255,255,.08);color:#fff;margin-top:10px;padding:6px 12px;font-size:11px;font-weight:700">Sign out</button>
+        </div>
+    </aside>
+
+    <main class="content">
+        <div class="page-header">
+            <h1 class="page-title">Safeguarding queue</h1>
+            <p class="page-sub">Brief §8 — projects flagged <code>involves_minors_or_vulnerable=1</code> require admin verification before they can leave <code>mission</code> or enter <code>execution</code>. Decisions land in <code>safeguarding_record</code> as an audit trail.</p>
+        </div>
+
+        <div id="msg" class="msg" style="display:none"></div>
+
+        <div class="counts-row">
+            <div class="count-card">
+                <div class="label">Queue (pending or rejected)</div>
+                <div class="value" id="count-queue">…</div>
+            </div>
+            <div class="count-card count-blocked">
+                <div class="label">Blocked (past start_at, unverified)</div>
+                <div class="value" id="count-blocked">…</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Queue — projects awaiting verification</div>
+            <table class="sg-table" id="queue-table">
+                <thead>
+                    <tr>
+                        <th>Project</th>
+                        <th>Sponsor</th>
+                        <th>State</th>
+                        <th>Verification</th>
+                        <th>Start</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="queue-body">
+                    <tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <div class="card-title" style="color:#b91c1c">Blocked — past start_at, still unverified</div>
+            <p style="font-size:12px;color:var(--text-muted);margin-top:-6px">These projects should have entered <code>execution</code> at <code>start_at</code> but the scheduler refused because verification is missing. Each day adds to <code>days_overdue</code>.</p>
+            <table class="sg-table" id="blocked-table">
+                <thead>
+                    <tr>
+                        <th>Project</th>
+                        <th>Start</th>
+                        <th>Days overdue</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="blocked-body">
+                    <tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:24px">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+<script src="shell.js"></script>
+<script>
+(function () {
+    var QUEUE_API   = '../../api/admin/safeguarding_queue.php';
+    var DECIDE_API  = '../../api/admin/set_verification.php';
+    var msg         = document.getElementById('msg');
+    var queueBody   = document.getElementById('queue-body');
+    var blockedBody = document.getElementById('blocked-body');
+
+    function flash(text, kind) {
+        msg.textContent = text;
+        msg.className = 'msg ' + (kind === 'ok' ? 'msg-ok' : 'msg-error');
+        msg.style.display = '';
+        if (kind === 'ok') setTimeout(function () { msg.style.display = 'none'; }, 4000);
+    }
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+        });
+    }
+    function fmtDate(s) {
+        if (!s) return '—';
+        try {
+            var d = new Date(String(s).replace(' ', 'T') + 'Z');
+            return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+        } catch (_) { return s; }
+    }
+
+    function decisionLine(d) {
+        if (!d) return '<span style="color:var(--text-muted);font-style:italic">No prior decision</span>';
+        return 'Last: <strong>' + esc(d.prior_status) + ' &rarr; ' + esc(d.new_status) + '</strong>'
+             + ' on ' + fmtDate(d.decided_at)
+             + (d.reviewer_email ? ' by ' + esc(d.reviewer_email) : '')
+             + (d.notes ? ' &middot; <em>' + esc(d.notes).slice(0, 100) + '</em>' : '');
+    }
+
+    function loadQueue() {
+        fetch(QUEUE_API + '?include_history=1', { credentials: 'include', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j || !j.ok) { flash((j && j.error) || 'Failed to load queue', 'err'); return; }
+
+                document.getElementById('count-queue').textContent   = j.counts.queue;
+                document.getElementById('count-blocked').textContent = j.counts.blocked;
+
+                if (!j.queue.length) {
+                    queueBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px">No vulnerable projects awaiting review.</td></tr>';
+                } else {
+                    queueBody.innerHTML = j.queue.map(function (p) {
+                        return ''
+                            + '<tr id="row-' + p.project_id + '">'
+                            +   '<td>'
+                            +     '<strong>#' + p.project_id + '</strong> &middot; ' + esc(p.title)
+                            +     '<div class="latest-decision">' + decisionLine(p.latest_decision) + '</div>'
+                            +   '</td>'
+                            +   '<td>' + esc(p.sponsor_name || '—') + '<div style="font-size:11px;color:var(--text-muted)">' + esc(p.sponsor_email || '') + '</div></td>'
+                            +   '<td><span class="state-pill state-' + esc(p.state) + '">' + esc(p.state) + '</span></td>'
+                            +   '<td><span class="status-pill status-' + esc(p.verification_status) + '">' + esc(p.verification_status) + '</span></td>'
+                            +   '<td>' + fmtDate(p.start_at) + '</td>'
+                            +   '<td><button class="btn btn-primary" style="padding:5px 12px;font-size:11px" data-review="' + p.project_id + '" data-title="' + esc(p.title) + '">Review &rarr;</button></td>'
+                            + '</tr>';
+                    }).join('');
+                    Array.prototype.forEach.call(queueBody.querySelectorAll('[data-review]'), function (btn) {
+                        btn.addEventListener('click', function () {
+                            openReview(parseInt(btn.getAttribute('data-review'), 10), btn.getAttribute('data-title'));
+                        });
+                    });
+                }
+
+                if (!j.blocked.length) {
+                    blockedBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:24px">No blocked projects. The scheduler is clear.</td></tr>';
+                } else {
+                    blockedBody.innerHTML = j.blocked.map(function (p) {
+                        return ''
+                            + '<tr>'
+                            +   '<td><strong>#' + p.project_id + '</strong> &middot; ' + esc(p.title) + '</td>'
+                            +   '<td>' + fmtDate(p.start_at) + '</td>'
+                            +   '<td class="days-overdue">' + p.days_overdue + ' day' + (p.days_overdue === 1 ? '' : 's') + '</td>'
+                            +   '<td><span class="status-pill status-' + esc(p.verification_status) + '">' + esc(p.verification_status) + '</span></td>'
+                            + '</tr>';
+                    }).join('');
+                }
+            })
+            .catch(function () { flash('Network error loading queue', 'err'); });
+    }
+
+    function openReview(projectId, title) {
+        var row = document.getElementById('row-' + projectId);
+        if (!row) return;
+        if (row.nextSibling && row.nextSibling.classList && row.nextSibling.classList.contains('review-row')) {
+            row.parentNode.removeChild(row.nextSibling);
+            return;  /* toggle off */
+        }
+        var formRow = document.createElement('tr');
+        formRow.className = 'review-row';
+        formRow.innerHTML =
+            '<td colspan="6">' +
+              '<div style="font-size:12px;color:var(--text-mid);margin-bottom:6px">Recording a verification decision for <strong>' + esc(title) + '</strong>. Every change writes an audit row to <code>safeguarding_record</code>.</div>' +
+              '<form class="review-form" data-pid="' + projectId + '">' +
+                '<div class="field">' +
+                  '<label>New status</label>' +
+                  '<select name="new_status">' +
+                    '<option value="verified">verified</option>' +
+                    '<option value="rejected">rejected</option>' +
+                    '<option value="pending">pending (re-affirm)</option>' +
+                  '</select>' +
+                '</div>' +
+                '<div class="field">' +
+                  '<label>Reviewer email</label>' +
+                  '<input type="text" value="' + esc((window._impactsUser || {}).email || '') + '" disabled style="background:var(--surface-2)">' +
+                '</div>' +
+                '<div class="field full">' +
+                  '<label>Documents reviewed <span style="color:#b91c1c">(required for verified)</span></label>' +
+                  '<textarea name="documents_reviewed" placeholder="e.g. Working with Children Check #ABC1234 (expires 2027-08), sponsor police check 2026-Q1, organisational child-safety policy v2.1"></textarea>' +
+                '</div>' +
+                '<div class="field full">' +
+                  '<label>Reviewer notes</label>' +
+                  '<textarea name="notes" placeholder="Optional reviewer comments"></textarea>' +
+                '</div>' +
+                '<div class="full" style="display:flex;gap:8px;margin-top:4px">' +
+                  '<button type="submit" class="btn btn-primary">Record decision</button>' +
+                  '<button type="button" class="btn" data-cancel style="background:var(--surface-2);color:var(--text-mid);border:1px solid var(--border)">Cancel</button>' +
+                '</div>' +
+              '</form>' +
+            '</td>';
+        row.parentNode.insertBefore(formRow, row.nextSibling);
+        var form = formRow.querySelector('form');
+        form.addEventListener('submit', function (e) { e.preventDefault(); submitReview(form); });
+        formRow.querySelector('[data-cancel]').addEventListener('click', function () {
+            formRow.parentNode.removeChild(formRow);
+        });
+    }
+
+    function submitReview(form) {
+        var pid = parseInt(form.getAttribute('data-pid'), 10);
+        var body = {
+            project_id:          pid,
+            new_status:          form.elements['new_status'].value,
+            documents_reviewed:  form.elements['documents_reviewed'].value,
+            notes:               form.elements['notes'].value
+        };
+        fetch(DECIDE_API, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+            .then(function (res) {
+                if (!res.ok || !res.body || !res.body.ok) {
+                    flash((res.body && res.body.error) || 'Decision save failed', 'err');
+                    return;
+                }
+                flash('Decision recorded for project #' + pid + ' (' + res.body.prior_status + ' → ' + res.body.new_status + ')', 'ok');
+                loadQueue();
+            })
+            .catch(function () { flash('Network error saving decision', 'err'); });
+    }
+
+    var bootCheck = setInterval(function () {
+        if (document.body.classList.contains('booted')) {
+            clearInterval(bootCheck);
+            loadQueue();
+        }
+    }, 100);
+})();
+</script>
+
+</body>
+</html>
