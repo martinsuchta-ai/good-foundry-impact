@@ -38,6 +38,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../impacts_bootstrap.php';
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../impacts_tier_thresholds.php';
 require_once __DIR__ . '/auth.php';
 
 header('Cache-Control: no-store');
@@ -166,11 +167,17 @@ function _projects_get(PDO $pdo): void
     $pledgeStmt->execute([$pid]);
     $pledgeCount = (int) $pledgeStmt->fetchColumn();
 
+    /* Tier-gate evaluation — admin sees the full eval (including the
+       tier_override_reason on the project row). Useful when reviewing
+       a project stuck in planning past its start_at. */
+    $thresholdsEval = impacts_evaluate_thresholds($pdo, $pid);
+
     impacts_json(200, [
         'ok'           => true,
         'project'      => $project,
         'ask_count'    => $askCount,
         'pledge_count' => $pledgeCount,
+        'thresholds'   => $thresholdsEval,
     ]);
 }
 

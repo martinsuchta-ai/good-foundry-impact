@@ -45,6 +45,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/impacts_bootstrap.php';
 require_once __DIR__ . '/impacts_notifications.php';
+require_once __DIR__ . '/impacts_tier_thresholds.php';
 
 /**
  * Run the scheduler once. Idempotent; safe to call from cron + from
@@ -56,6 +57,7 @@ require_once __DIR__ . '/impacts_notifications.php';
  *   planning_to_execution: list<int>,
  *   execution_to_done: list<int>,
  *   blocked_by_verification: list<int>,
+ *   blocked_by_thresholds: list<array{project_id:int, shortfall:array}>,
  *   errors: list<array{project_id:int, error:string}>
  * }
  */
@@ -68,6 +70,7 @@ function impacts_run_scheduler(PDO $pdo): array
         'planning_to_execution'    => [],
         'execution_to_done'        => [],
         'blocked_by_verification'  => [],
+        'blocked_by_thresholds'    => [],
         'errors'                   => [],
     ];
 
@@ -114,11 +117,30 @@ function impacts_run_scheduler(PDO $pdo): array
         $duePlanStmt->execute([$ranAt]);
         while ($row = $duePlanStmt->fetch(PDO::FETCH_ASSOC)) {
             $pid = (int) $row['id'];
+
+            /* Brief §4/§5 tier gate — evaluate AFTER the safeguarding
+               filter but BEFORE the transition fires. A project whose
+               start_at is past but whose tier thresholds aren't yet met
+               STAYS in planning + is reported as blocked_by_thresholds.
+               Admin can clear with a tier_override_reason on the project
+               row OR sponsors can keep gathering supporters. */
+            $eval = impacts_evaluate_thresholds($pdo, $pid);
+            if (!$eval['met'] && !$eval['override']) {
+                $report['blocked_by_thresholds'][] = [
+                    'project_id' => $pid,
+                    'tier'       => $eval['tier'],
+                    'shortfall'  => $eval['shortfall'],
+                ];
+                continue;
+            }
+
             try {
                 impacts_transition($pdo, $pid, 'planning', 'execution', [
                     'transition_type' => 'auto_scheduler',
                     'scheduled_for'   => (string) $row['start_at'],
-                    'reason'          => 'auto flip at start_at',
+                    'reason'          => $eval['override']
+                        ? 'auto flip at start_at (tier override active)'
+                        : 'auto flip at start_at (thresholds met)',
                 ]);
                 $report['planning_to_execution'][] = $pid;
             } catch (Throwable $e) {

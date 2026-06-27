@@ -45,6 +45,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../impacts_bootstrap.php';
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../impacts_tier_thresholds.php';
 
 impacts_send_cors_origin();
 
@@ -121,7 +122,7 @@ try {
     /* Brief §6a HARD RULE — precision-reduce coordinates server-side
        BEFORE they reach the client. Projects with vulnerable people
        are hard-clamped to suburb regardless of stored precision. */
-    $cleaned = array_map(function (array $r): array {
+    $cleaned = array_map(function (array $r) use ($pdo): array {
         $isVuln = ((int) $r['involves_minors_or_vulnerable']) === 1;
         $precision = $r['location_precision'] ?: 'suburb';
         /* Hard clamp for vulnerable. */
@@ -138,6 +139,24 @@ try {
                 case 'country': $lat = round((float) $lat, 0); $lng = round((float) $lng, 0); break;
             }
         }
+        /* Brief §4/§5 go-live progress meter. For projects in
+           planning we surface what's needed before execution opens
+           so the consumer-side widget can render "this project needs
+           N more supporters". Skipped for execution/done (gate is
+           moot) to keep the payload light. progress is the public-
+           safe subset — no admin override reason exposed. */
+        $progress = null;
+        if ($r['state'] === 'planning') {
+            $eval = impacts_evaluate_thresholds($pdo, (int) $r['id']);
+            $progress = [
+                'tier'          => $eval['tier'],
+                'thresholds'    => $eval['thresholds'],
+                'progress'      => $eval['progress'],
+                'shortfall'     => $eval['shortfall'],
+                'ready_for_go_live' => $eval['met'] || $eval['override'],
+            ];
+        }
+
         return [
             'id'                            => (int) $r['id'],
             'title'                         => (string) $r['title'],
@@ -152,6 +171,7 @@ try {
             'location_label'                => $r['location_label'],
             'location_precision'            => $precision,
             'involves_minors_or_vulnerable' => $isVuln,
+            'go_live_progress'              => $progress,
         ];
     }, $rows);
 

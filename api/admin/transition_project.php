@@ -33,6 +33,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../impacts_bootstrap.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../impacts_state_engine.php';
+require_once __DIR__ . '/../impacts_tier_thresholds.php';
 require_once __DIR__ . '/auth.php';
 
 header('Cache-Control: no-store');
@@ -106,6 +107,27 @@ try {
             'from_state' => $fromState,
             'verification_status' => $row['verification_status'],
         ]);
+    }
+
+    /* Tier-mandated go-live gate — brief §4/§5. Manual planning ->
+       execution must clear the tier minimums OR carry an explicit
+       tier_override_reason set by the admin via set_tier_override.php.
+       Same evaluation the auto-scheduler uses so admin + scheduler
+       agree at every tick. */
+    if ($fromState === 'planning' && $toState === 'execution') {
+        $eval = impacts_evaluate_thresholds($pdo, $projectId);
+        if (!$eval['met'] && !$eval['override']) {
+            impacts_json(409, [
+                'ok'         => false,
+                'error'      => 'tier thresholds not met — set tier_override_reason on the project to bypass',
+                'from_state' => $fromState,
+                'tier'       => $eval['tier'],
+                'thresholds' => $eval['thresholds'],
+                'progress'   => $eval['progress'],
+                'shortfall'  => $eval['shortfall'],
+                'hint'       => 'POST /api/admin/set_tier_override.php with {project_id, reason} to bypass',
+            ]);
+        }
     }
 
     impacts_transition($pdo, $projectId, $fromState, $toState, [
