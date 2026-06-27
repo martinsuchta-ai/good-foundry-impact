@@ -39,6 +39,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../impacts_bootstrap.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../impacts_tier_thresholds.php';
+require_once __DIR__ . '/../impacts_mail.php';
 require_once __DIR__ . '/auth.php';
 
 header('Cache-Control: no-store');
@@ -193,23 +194,74 @@ function _projects_create(PDO $pdo, array $admin): void
     if ($title === '') impacts_json(400, ['ok' => false, 'error' => 'title required']);
 
     $payload = _projects_clean_payload($body);
-    /* Enforce defaults that the DB doesn't carry (e.g. scale defaults
-       to micro, location_mode to none — both already DB defaults). */
     if (!isset($payload['title'])) $payload['title'] = $title;
 
-    $cols = array_keys($payload);
+    /* Brief §8 — when create payload sets involves_minors_or_vulnerable=1
+       we coerce verification_status to 'pending' so the state engine's
+       gate engages from creation. Without this, the DB default
+       ('not_required') would let the project slip past the gate. */
+    $needsReview = !empty($payload['involves_minors_or_vulnerable']);
+    if ($needsReview) {
+        /* projects.php doesn't whitelist verification_status (set via
+           the dedicated set_verification.php endpoint) — write it
+           directly through a side-channel column list. */
+        $cols = array_keys($payload);
+        $cols[] = 'verification_status';
+        $values = array_values($payload);
+        $values[] = 'pending';
+    } else {
+        $cols   = array_keys($payload);
+        $values = array_values($payload);
+    }
+
     $placeholders = implode(', ', array_fill(0, count($cols), '?'));
     $sql = "INSERT INTO `impact_project` (`" . implode('`, `', $cols) . "`) VALUES ($placeholders)";
     $stmt = $pdo->prepare($sql);
-    $stmt->execute(array_values($payload));
+    $stmt->execute($values);
     $newId = (int) $pdo->lastInsertId();
 
+    /* Brief §8 — fire an admin notification when a vulnerable project
+       lands. Wrapped failure-soft so a mail outage never blocks
+       project creation. */
+    if ($needsReview) {
+        try {
+            _projects_notify_vulnerable_admin($newId, $title, (int) $admin['id'], 'created');
+        } catch (Throwable $_e) {
+            error_log('[admin/projects.create] vulnerable notification failed for project ' . $newId . ': ' . $_e->getMessage());
+        }
+    }
+
     impacts_json(201, [
-        'ok'         => true,
-        'project_id' => $newId,
-        'created_by' => $admin['id'],
-        'state'      => 'mission',
+        'ok'                 => true,
+        'project_id'         => $newId,
+        'created_by'         => $admin['id'],
+        'state'              => 'mission',
+        'verification_status' => $needsReview ? 'pending' : 'not_required',
     ]);
+}
+
+/* Brief §8 — admin email when a project enters the vulnerable
+   pathway (either created with the flag, or flag flipped on via
+   update). Goes to info@impacts-foundry.com (admin shared inbox);
+   reviewers triage via /api/admin/safeguarding_queue.php and decide
+   via /api/admin/set_verification.php. */
+function _projects_notify_vulnerable_admin(int $projectId, string $title, int $adminId, string $event): void
+{
+    $subject = '[GMI safeguarding] Project ' . $projectId . ' needs verification (' . $event . ')';
+    $reviewUrl = 'https://www.impacts-foundry.com/app/admin/projects.html?id=' . $projectId;
+    $queueUrl  = 'https://www.impacts-foundry.com/app/admin/safeguarding.html';
+    $body = '<p>A project flagged as <strong>involves_minors_or_vulnerable=1</strong> is awaiting safeguarding verification.</p>'
+          . '<ul>'
+          . '<li><strong>Project:</strong> #' . $projectId . ' — ' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</li>'
+          . '<li><strong>Event:</strong> ' . htmlspecialchars($event, ENT_QUOTES, 'UTF-8') . '</li>'
+          . '<li><strong>Triggered by admin id:</strong> ' . $adminId . '</li>'
+          . '<li><strong>Verification status:</strong> pending</li>'
+          . '</ul>'
+          . '<p>Brief §8: this project CANNOT enter planning or execution until a reviewer sets verification_status to "verified" via /api/admin/set_verification.php. Documents reviewed must be recorded.</p>'
+          . '<p><a href="' . $reviewUrl . '">Open project</a> &nbsp;|&nbsp; <a href="' . $queueUrl . '">Open safeguarding queue</a></p>';
+    if (function_exists('impacts_send_mail')) {
+        @impacts_send_mail('info@impacts-foundry.com', $subject, $body);
+    }
 }
 
 function _projects_update(PDO $pdo, array $admin): void
@@ -226,11 +278,35 @@ function _projects_update(PDO $pdo, array $admin): void
     $payload = _projects_clean_payload($body);
     if (!$payload) impacts_json(400, ['ok' => false, 'error' => 'no writable fields supplied']);
 
+    /* Brief §8 — capture the prior vulnerable flag + verification_status
+       BEFORE the update so we can detect the transition "flag flipped
+       from 0 to 1" and fire the safeguarding notification. */
+    $priorRow = null;
+    if (array_key_exists('involves_minors_or_vulnerable', $payload)) {
+        $pr = $pdo->prepare("SELECT `involves_minors_or_vulnerable`, `verification_status`, `title` FROM `impact_project` WHERE `id` = ? LIMIT 1");
+        $pr->execute([$pid]);
+        $priorRow = $pr->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    /* If admin is enabling the vulnerable flag on a project that had
+       it off, coerce verification_status to 'pending' in the same
+       UPDATE so the gate engages immediately. */
+    $flipOn = $priorRow
+        && (int) $priorRow['involves_minors_or_vulnerable'] === 0
+        && !empty($payload['involves_minors_or_vulnerable']);
+    if ($flipOn) {
+        $payload['__force_verification_pending'] = 1;  /* marker; not a column */
+    }
+
     $sets = [];
     $vals = [];
     foreach ($payload as $f => $v) {
+        if ($f === '__force_verification_pending') continue;
         $sets[] = "`$f` = ?";
         $vals[] = $v;
+    }
+    if ($flipOn) {
+        $sets[] = "`verification_status` = 'pending'";
     }
     $vals[] = $pid;
     $sql = "UPDATE `impact_project` SET " . implode(', ', $sets) . " WHERE `id` = ?";
@@ -238,14 +314,28 @@ function _projects_update(PDO $pdo, array $admin): void
     $stmt->execute($vals);
 
     if ($stmt->rowCount() === 0) {
-        /* Could be: project missing, OR fields supplied matched existing
-           values exactly. Distinguish with a SELECT. */
         $check = $pdo->prepare("SELECT 1 FROM `impact_project` WHERE `id` = ? LIMIT 1");
         $check->execute([$pid]);
         if (!$check->fetchColumn()) impacts_json(404, ['ok' => false, 'error' => 'project not found']);
     }
 
-    impacts_json(200, ['ok' => true, 'project_id' => $pid, 'updated_by' => $admin['id']]);
+    /* Fire the admin notification ONCE, on the flag flip event only.
+       Subsequent updates with the flag already 1 don't re-notify
+       (avoids inbox spam from routine edits). */
+    if ($flipOn && $priorRow) {
+        try {
+            _projects_notify_vulnerable_admin($pid, (string) $priorRow['title'], (int) $admin['id'], 'flag_flipped_on');
+        } catch (Throwable $_e) {
+            error_log('[admin/projects.update] vulnerable notification failed for project ' . $pid . ': ' . $_e->getMessage());
+        }
+    }
+
+    impacts_json(200, [
+        'ok'                        => true,
+        'project_id'                => $pid,
+        'updated_by'                => $admin['id'],
+        'verification_coerced_pending' => $flipOn,
+    ]);
 }
 
 function _projects_delete(PDO $pdo, array $admin): void
